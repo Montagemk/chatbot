@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+
+{% block title %}Conversas - IA Vendas WhatsApp{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-comments"></i>
+            Conversas dos Clientes
+        </h1>
+        
+        <p class="lead text-muted">
+            Histórico completo de conversas e interações com clientes
+        </p>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <form class="row g-3">
+                    <div class="col-md-3">
+                        <label for="filter-status" class="form-label">Status</label>
+                        <select class="form-select" id="filter-status">
+                            <option value="">Todos</option>
+                            <option value="purchased">Compraram</option>
+                            <option value="active">Em conversa</option>
+                            <option value="inactive">Inativos</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="filter-date" class="form-label">Período</label>
+                        <select class="form-select" id="filter-date">
+                            <option value="">Todos</option>
+                            <option value="today">Hoje</option>
+                            <option value="week">Esta semana</option>
+                            <option value="month">Este mês</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="search-phone" class="form-label">Buscar por telefone</label>
+                        <input type="text" class="form-control" id="search-phone" placeholder="(11) 99999-9999">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <button type="submit" class="btn btn-primary d-block w-100">
+                            <i class="fas fa-search"></i> Filtrar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Customers List -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Lista de Clientes</h5>
+                <small class="text-muted">
+                    {{ customers.total }} clientes encontrados
+                </small>
+            </div>
+            <div class="card-body">
+                {% if customers.items %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Cliente</th>
+                                <th>Telefone</th>
+                                <th>Primeira Conversa</th>
+                                <th>Última Atividade</th>
+                                <th>Mensagens</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for customer in customers.items %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar-circle me-3">
+                                            {{ customer.name[0] if customer.name else customer.whatsapp_number[0] }}
+                                        </div>
+                                        <div>
+                                            <strong>{{ customer.name or 'Sem nome' }}</strong>
+                                            {% if customer.purchased %}
+                                                <br><small class="text-success">
+                                                    <i class="fas fa-check-circle"></i> Cliente
+                                                </small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="font-monospace">{{ customer.whatsapp_number }}</span>
+                                </td>
+                                <td>
+                                    <small>{{ customer.first_contact.strftime('%d/%m/%Y %H:%M') }}</small>
+                                </td>
+                                <td>
+                                    <small>{{ customer.last_interaction.strftime('%d/%m/%Y %H:%M') }}</small>
+                                    {% set hours_ago = ((now - customer.last_interaction).total_seconds() / 3600)|int %}
+                                    <br><small class="text-muted">
+                                        {% if hours_ago < 1 %}
+                                            Agora mesmo
+                                        {% elif hours_ago < 24 %}
+                                            {{ hours_ago }}h atrás
+                                        {% else %}
+                                            {{ (hours_ago / 24)|int }}d atrás
+                                        {% endif %}
+                                    </small>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">{{ customer.total_interactions }}</span>
+                                </td>
+                                <td>
+                                    {% if customer.purchased %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-shopping-cart"></i> Comprou
+                                        </span>
+                                    {% elif (now - customer.last_interaction).total_seconds() < 3600 %}
+                                        <span class="badge bg-primary">
+                                            <i class="fas fa-circle"></i> Online
+                                        </span>
+                                    {% elif (now - customer.last_interaction).total_seconds() < 86400 %}
+                                        <span class="badge bg-warning">
+                                            <i class="fas fa-clock"></i> Recente
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">
+                                            <i class="fas fa-pause"></i> Inativo
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('customer_detail', customer_id=customer.id) }}" 
+                                           class="btn btn-outline-primary">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        {% if not customer.purchased %}
+                                        <button class="btn btn-outline-success" 
+                                                onclick="simulateSale({{ customer.id }})">
+                                            <i class="fas fa-dollar-sign"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination -->
+                {% if customers.pages > 1 %}
+                <nav aria-label="Paginação">
+                    <ul class="pagination justify-content-center">
+                        {% if customers.has_prev %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('conversations', page=customers.prev_num) }}">
+                                Anterior
+                            </a>
+                        </li>
+                        {% endif %}
+                        
+                        {% for page_num in customers.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+                            {% if page_num %}
+                                {% if page_num != customers.page %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('conversations', page=page_num) }}">
+                                        {{ page_num }}
+                                    </a>
+                                </li>
+                                {% else %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ page_num }}</span>
+                                </li>
+                                {% endif %}
+                            {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if customers.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('conversations', page=customers.next_num) }}">
+                                Próxima
+                            </a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+                
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-comments fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">Nenhuma conversa encontrada</h5>
+                    <p class="text-muted">
+                        Quando os clientes começarem a conversar pelo WhatsApp, elas aparecerão aqui.
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sale Simulation Modal -->
+<div class="modal fade" id="saleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-dollar-sign"></i>
+                    Simular Venda
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Deseja marcar este cliente como tendo realizado uma compra?</p>
+                <p class="text-muted">
+                    <small>
+                        Isso ajudará o sistema de IA a aprender com estratégias bem-sucedidas.
+                    </small>
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-success" id="confirmSale">
+                    <i class="fas fa-check"></i>
+                    Confirmar Venda
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedCustomerId = null;
+
+function simulateSale(customerId) {
+    selectedCustomerId = customerId;
+    const modal = new bootstrap.Modal(document.getElementById('saleModal'));
+    modal.show();
+}
+
+document.getElementById('confirmSale').addEventListener('click', async function() {
+    if (!selectedCustomerId) return;
+    
+    try {
+        const response = await fetch('/simulate_sale', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                customer_id: selectedCustomerId
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('saleModal'));
+            modal.hide();
+            
+            // Show success message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show';
+            alertDiv.innerHTML = `
+                <i class="fas fa-check-circle"></i>
+                <strong>Sucesso!</strong> Venda registrada usando estratégia: ${result.strategy}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+            
+            // Refresh page after delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+            
+        } else {
+            throw new Error(result.error || 'Erro desconhecido');
+        }
+        
+    } catch (error) {
+        alert('Erro ao registrar venda: ' + error.message);
+    }
+});
+
+// Add current datetime as a template variable for age calculations
+const now = new Date();
+</script>
+{% endblock %}

@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - IA Vendas WhatsApp{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-chart-bar"></i>
+            Analytics e Insights
+        </h1>
+        
+        <p class="lead text-muted">
+            Análise profunda do desempenho da IA e comportamento dos clientes
+        </p>
+    </div>
+</div>
+
+<!-- AI Learning Performance -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain"></i>
+                    Performance de Aprendizado da IA
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if learning_stats %}
+                <div class="row">
+                    <!-- Overall Statistics -->
+                    <div class="col-md-4">
+                        <h6>Resumo Geral</h6>
+                        <div class="list-group list-group-flush">
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                Total de Interações
+                                <span class="badge bg-primary rounded-pill">{{ learning_stats.total_attempts }}</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                Vendas Realizadas
+                                <span class="badge bg-success rounded-pill">{{ learning_stats.total_successes }}</span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                Taxa de Conversão
+                                <span class="badge bg-info rounded-pill">
+                                    {{ "%.2f"|format(learning_stats.overall_success_rate * 100) }}%
+                                </span>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                Estratégia Mais Eficaz
+                                <span class="badge bg-warning rounded-pill">
+                                    {{ learning_stats.best_strategy.title() }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Strategy Comparison Chart -->
+                    <div class="col-md-8">
+                        <canvas id="strategyComparisonChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <!-- Detailed Strategy Analysis -->
+                <div class="row">
+                    <div class="col-12">
+                        <h6>Análise Detalhada por Estratégia</h6>
+                        
+                        <div class="row">
+                            {% for strategy_name, strategy_data in learning_stats.strategies.items() %}
+                            <div class="col-md-6 col-lg-3 mb-3">
+                                <div class="card 
+                                    {% if strategy_name == learning_stats.best_strategy %}border-success
+                                    {% elif strategy_name == learning_stats.worst_strategy %}border-danger
+                                    {% else %}border-info{% endif %}">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">{{ strategy_name.title() }}</h6>
+                                        {% if strategy_name == learning_stats.best_strategy %}
+                                            <small class="text-success">
+                                                <i class="fas fa-trophy"></i> Melhor
+                                            </small>
+                                        {% elif strategy_name == learning_stats.worst_strategy %}
+                                            <small class="text-danger">
+                                                <i class="fas fa-arrow-down"></i> Pior
+                                            </small>
+                                        {% endif %}
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-2">
+                                            <small class="text-muted">Taxa de Sucesso</small>
+                                            <div class="progress mb-1" style="height: 20px;">
+                                                <div class="progress-bar 
+                                                    {% if strategy_data.success_rate > 0.3 %}bg-success
+                                                    {% elif strategy_data.success_rate > 0.15 %}bg-warning
+                                                    {% else %}bg-danger{% endif %}" 
+                                                     role="progressbar" 
+                                                     style="width: {{ (strategy_data.success_rate * 100)|round }}%">
+                                                    {{ "%.1f"|format(strategy_data.success_rate * 100) }}%
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="d-flex justify-content-between text-small">
+                                            <span class="text-muted">Tentativas: {{ strategy_data.total_attempts }}</span>
+                                            <span class="text-success">Sucessos: {{ strategy_data.success_count }}</span>
+                                        </div>
+                                        
+                                        {% if strategy_data.last_updated %}
+                                        <small class="text-muted">
+                                            Atualizado: {{ strategy_data.last_updated[:10] }}
+                                        </small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    Dados de aprendizado não disponíveis. Inicie conversas para gerar estatísticas.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sales Performance Over Time -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line"></i>
+                    Vendas ao Longo do Tempo
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if daily_sales %}
+                <canvas id="salesTimelineChart" width="400" height="200"></canvas>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    Nenhuma venda registrada ainda. Os gráficos aparecerão quando houver dados.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Customer Insights -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-heart"></i>
+                    Análise de Sentimento
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if avg_sentiment %}
+                <div class="text-center mb-3">
+                    <div class="sentiment-indicator">
+                        {% if avg_sentiment > 0.3 %}
+                            <i class="fas fa-smile fa-3x text-success"></i>
+                            <h5 class="text-success mt-2">Positivo</h5>
+                        {% elif avg_sentiment > -0.3 %}
+                            <i class="fas fa-meh fa-3x text-warning"></i>
+                            <h5 class="text-warning mt-2">Neutro</h5>
+                        {% else %}
+                            <i class="fas fa-frown fa-3x text-danger"></i>
+                            <h5 class="text-danger mt-2">Negativo</h5>
+                        {% endif %}
+                    </div>
+                    
+                    <p class="text-muted">
+                        Sentimento médio dos clientes: {{ "%.2f"|format(avg_sentiment) }}
+                    </p>
+                </div>
+                
+                <div class="progress mb-3" style="height: 20px;">
+                    <div class="progress-bar 
+                        {% if avg_sentiment > 0.3 %}bg-success
+                        {% elif avg_sentiment > -0.3 %}bg-warning
+                        {% else %}bg-danger{% endif %}" 
+                         role="progressbar" 
+                         style="width: {{ ((avg_sentiment + 1) * 50)|round }}%">
+                    </div>
+                </div>
+                
+                <small class="text-muted">
+                    Baseado na análise de mensagens dos clientes utilizando IA
+                </small>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    Dados de sentimento não disponíveis ainda.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-lightbulb"></i>
+                    Insights e Recomendações
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if learning_stats %}
+                <ul class="list-unstyled">
+                    {% if learning_stats.best_strategy %}
+                    <li class="mb-2">
+                        <i class="fas fa-check-circle text-success"></i>
+                        <strong>Estratégia Recomendada:</strong> Use mais a abordagem 
+                        <span class="badge bg-success">{{ learning_stats.best_strategy }}</span>
+                    </li>
+                    {% endif %}
+                    
+                    {% if learning_stats.overall_success_rate < 0.1 %}
+                    <li class="mb-2">
+                        <i class="fas fa-exclamation-triangle text-warning"></i>
+                        <strong>Atenção:</strong> Taxa de conversão baixa. Considere revisar as mensagens.
+                    </li>
+                    {% elif learning_stats.overall_success_rate > 0.3 %}
+                    <li class="mb-2">
+                        <i class="fas fa-star text-success"></i>
+                        <strong>Excelente:</strong> Alta taxa de conversão! Continue assim.
+                    </li>
+                    {% endif %}
+                    
+                    {% if learning_stats.total_attempts < 20 %}
+                    <li class="mb-2">
+                        <i class="fas fa-info-circle text-info"></i>
+                        <strong>Dica:</strong> Mais dados ajudarão a IA a aprender melhor.
+                    </li>
+                    {% endif %}
+                    
+                    {% if avg_sentiment and avg_sentiment < 0 %}
+                    <li class="mb-2">
+                        <i class="fas fa-frown text-warning"></i>
+                        <strong>Sentimento:</strong> Clientes parecem insatisfeitos. Revise a abordagem.
+                    </li>
+                    {% endif %}
+                </ul>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    Insights aparecerão quando houver dados suficientes.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export and Actions -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-download"></i>
+                    Exportar Dados e Ações
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Exportar Relatórios</h6>
+                        <div class="d-grid gap-2 d-md-block">
+                            <button class="btn btn-outline-primary" onclick="exportData('learning')">
+                                <i class="fas fa-brain"></i>
+                                Dados de Aprendizado
+                            </button>
+                            <button class="btn btn-outline-success" onclick="exportData('sales')">
+                                <i class="fas fa-chart-bar"></i>
+                                Relatório de Vendas
+                            </button>
+                            <button class="btn btn-outline-info" onclick="exportData('conversations')">
+                                <i class="fas fa-comments"></i>
+                                Conversas Completas
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6>Ações do Sistema</h6>
+                        <div class="d-grid gap-2 d-md-block">
+                            <button class="btn btn-outline-warning" onclick="resetLearning()">
+                                <i class="fas fa-undo"></i>
+                                Resetar Aprendizado
+                            </button>
+                            <button class="btn btn-outline-info" onclick="refreshData()">
+                                <i class="fas fa-sync-alt"></i>
+                                Atualizar Dados
+                            </button>
+                        </div>
+                        
+                        <small class="text-muted d-block mt-2">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Use com cuidado. Algumas ações não podem ser desfeitas.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Strategy Comparison Chart
+{% if learning_stats and learning_stats.strategies %}
+const strategiesData = {{ learning_stats.strategies|tojson }};
+
+const ctx1 = document.getElementById('strategyComparisonChart').getContext('2d');
+const strategyComparisonChart = new Chart(ctx1, {
+    type: 'bar',
+    data: {
+        labels: Object.keys(strategiesData).map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+        datasets: [{
+            label: 'Taxa de Sucesso (%)',
+            data: Object.values(strategiesData).map(d => d.success_rate * 100),
+            backgroundColor: [
+                'rgba(40, 167, 69, 0.8)',
+                'rgba(255, 193, 7, 0.8)',
+                'rgba(23, 162, 184, 0.8)',
+                'rgba(220, 53, 69, 0.8)'
+            ],
+            borderColor: [
+                'rgba(40, 167, 69, 1)',
+                'rgba(255, 193, 7, 1)',
+                'rgba(23, 162, 184, 1)',
+                'rgba(220, 53, 69, 1)'
+            ],
+            borderWidth: 2
+        }, {
+            label: 'Total de Tentativas',
+            data: Object.values(strategiesData).map(d => d.total_attempts),
+            type: 'line',
+            borderColor: 'rgba(108, 117, 125, 1)',
+            backgroundColor: 'rgba(108, 117, 125, 0.1)',
+            yAxisID: 'y1'
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            title: {
+                display: true,
+                text: 'Comparação de Estratégias de IA'
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'Taxa de Sucesso (%)'
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Número de Tentativas'
+                },
+                grid: {
+                    drawOnChartArea: false,
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+// Sales Timeline Chart
+{% if daily_sales %}
+const salesData = {{ daily_sales|tojson }};
+
+const ctx2 = document.getElementById('salesTimelineChart').getContext('2d');
+const salesTimelineChart = new Chart(ctx2, {
+    type: 'line',
+    data: {
+        labels: salesData.map(d => {
+            const date = new Date(d[0]);
+            return date.toLocaleDateString('pt-BR');
+        }),
+        datasets: [{
+            label: 'Número de Vendas',
+            data: salesData.map(d => d[1]),
+            borderColor: 'rgba(40, 167, 69, 1)',
+            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+            tension: 0.4
+        }, {
+            label: 'Receita (R$)',
+            data: salesData.map(d => d[2]),
+            borderColor: 'rgba(23, 162, 184, 1)',
+            backgroundColor: 'rgba(23, 162, 184, 0.1)',
+            yAxisID: 'y1',
+            tension: 0.4
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            title: {
+                display: true,
+                text: 'Vendas e Receita dos Últimos 30 Dias'
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: 'Número de Vendas'
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: 'Receita (R$)'
+                },
+                grid: {
+                    drawOnChartArea: false,
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+// Export functions
+function exportData(type) {
+    // This would typically make an API call to generate and download reports
+    alert(`Funcionalidade de exportar ${type} será implementada em breve.`);
+}
+
+function resetLearning() {
+    if (confirm('Tem certeza que deseja resetar todos os dados de aprendizado? Esta ação não pode ser desfeita.')) {
+        // This would reset all learning data
+        alert('Funcionalidade de reset será implementada em breve.');
+    }
+}
+
+function refreshData() {
+    window.location.reload();
+}
+</script>
+{% endblock %}

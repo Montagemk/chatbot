@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - IA Vendas WhatsApp{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-tachometer-alt"></i>
+            Dashboard de Vendas
+        </h1>
+        
+        <p class="lead text-muted">
+            Acompanhe o desempenho da sua IA de vendas em tempo real
+        </p>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="card-title text-white">{{ total_customers }}</h5>
+                        <p class="card-text text-white-50">Total Clientes</p>
+                    </div>
+                    <i class="fas fa-users fa-2x text-white-50"></i>
+                </div>
+                <small class="text-white-50">
+                    <i class="fas fa-arrow-up"></i>
+                    +{{ recent_customers }} esta semana
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="card-title text-white">{{ total_sales }}</h5>
+                        <p class="card-text text-white-50">Total Vendas</p>
+                    </div>
+                    <i class="fas fa-shopping-cart fa-2x text-white-50"></i>
+                </div>
+                <small class="text-white-50">
+                    <i class="fas fa-arrow-up"></i>
+                    +{{ recent_sales }} esta semana
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="card-title text-white">R$ {{ "%.2f"|format(total_revenue) }}</h5>
+                        <p class="card-text text-white-50">Receita Total</p>
+                    </div>
+                    <i class="fas fa-dollar-sign fa-2x text-white-50"></i>
+                </div>
+                <small class="text-white-50">
+                    Valor médio: R$ {{ "%.2f"|format((total_revenue / total_sales) if total_sales > 0 else 0) }}
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="card-title text-dark">{{ "%.1f"|format(conversion_rate) }}%</h5>
+                        <p class="card-text text-dark">Taxa Conversão</p>
+                    </div>
+                    <i class="fas fa-percentage fa-2x text-dark"></i>
+                </div>
+                <small class="text-dark">
+                    {{ total_conversations }} conversas totais
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Learning Performance -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain"></i>
+                    Performance do Aprendizado de IA
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if learning_stats %}
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Estatísticas Gerais</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Total de Tentativas:</strong> {{ learning_stats.total_attempts }}</li>
+                            <li><strong>Total de Sucessos:</strong> {{ learning_stats.total_successes }}</li>
+                            <li><strong>Taxa de Sucesso Geral:</strong> {{ "%.2f"|format(learning_stats.overall_success_rate * 100) }}%</li>
+                            <li><strong>Melhor Estratégia:</strong> 
+                                <span class="badge bg-success">{{ learning_stats.best_strategy }}</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <canvas id="strategiesChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <h6>Desempenho por Estratégia</h6>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Estratégia</th>
+                                <th>Tentativas</th>
+                                <th>Sucessos</th>
+                                <th>Taxa de Sucesso</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for strategy_name, strategy_data in learning_stats.strategies.items() %}
+                            <tr>
+                                <td>
+                                    <span class="badge bg-secondary">{{ strategy_name.title() }}</span>
+                                </td>
+                                <td>{{ strategy_data.total_attempts }}</td>
+                                <td>{{ strategy_data.success_count }}</td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar 
+                                            {% if strategy_data.success_rate > 0.3 %}bg-success
+                                            {% elif strategy_data.success_rate > 0.15 %}bg-warning
+                                            {% else %}bg-danger{% endif %}" 
+                                             role="progressbar" 
+                                             style="width: {{ (strategy_data.success_rate * 100)|round }}%">
+                                            {{ "%.1f"|format(strategy_data.success_rate * 100) }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if strategy_name == learning_stats.best_strategy %}
+                                        <span class="badge bg-success">Melhor</span>
+                                    {% elif strategy_name == learning_stats.worst_strategy %}
+                                        <span class="badge bg-danger">Pior</span>
+                                    {% else %}
+                                        <span class="badge bg-info">Ativo</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    Aguardando dados de aprendizado. Inicie conversas para ver estatísticas.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-clock"></i>
+                    Atividade Recente
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="recent-activity">
+                    <p class="text-muted">Carregando atividade recente...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-cogs"></i>
+                    Status do Sistema
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="fas fa-circle text-success"></i>
+                        WhatsApp API: 
+                        <span class="text-success">Conectado</span>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-circle text-success"></i>
+                        OpenRouter API: 
+                        <span class="text-success">Ativo</span>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-circle text-success"></i>
+                        Banco de Dados: 
+                        <span class="text-success">Online</span>
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-circle text-success"></i>
+                        Sistema de Aprendizado: 
+                        <span class="text-success">Funcionando</span>
+                    </li>
+                </ul>
+                
+                <hr>
+                
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary" onclick="refreshDashboard()">
+                        <i class="fas fa-sync-alt"></i>
+                        Atualizar Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Strategies Chart
+{% if learning_stats and learning_stats.strategies %}
+const strategiesData = {{ learning_stats.strategies|tojson }};
+const ctx = document.getElementById('strategiesChart').getContext('2d');
+
+const strategiesChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: Object.keys(strategiesData).map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+        datasets: [{
+            data: Object.values(strategiesData).map(d => d.success_rate * 100),
+            backgroundColor: [
+                '#28a745',
+                '#ffc107', 
+                '#17a2b8',
+                '#dc3545'
+            ],
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            title: {
+                display: true,
+                text: 'Taxa de Sucesso por Estratégia (%)'
+            },
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+{% endif %}
+
+// Refresh dashboard function
+function refreshDashboard() {
+    window.location.reload();
+}
+
+// Auto-refresh every 5 minutes
+setInterval(refreshDashboard, 300000);
+</script>
+{% endblock %}

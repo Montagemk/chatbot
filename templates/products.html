@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Gerenciar Produtos - IA Vendas WhatsApp{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>
+                <i class="fas fa-box"></i>
+                Gerenciar Produtos
+            </h1>
+            <a href="{{ url_for('new_product') }}" class="btn btn-primary">
+                <i class="fas fa-plus"></i>
+                Novo Produto
+            </a>
+        </div>
+        
+        <p class="lead text-muted">
+            Configure seus produtos digitais e defina estratégias de venda personalizadas
+        </p>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger" role="alert">
+    <i class="fas fa-exclamation-triangle"></i>
+    Erro ao carregar produtos: {{ error }}
+</div>
+{% endif %}
+
+{% if products %}
+<div class="row">
+    {% for product in products %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{{ product.name }}</h5>
+                <span class="badge bg-{{ 'success' if product.sales_approach == 'consultivo' else 'warning' if product.sales_approach == 'escassez' else 'info' if product.sales_approach == 'emocional' else 'danger' }}">
+                    {{ product.sales_approach.title() }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <small class="text-muted">Nicho:</small>
+                    <p class="mb-1">
+                        <span class="badge bg-secondary">{{ product.niche }}</span>
+                    </p>
+                </div>
+                
+                <div class="mb-3">
+                    <small class="text-muted">Preço:</small>
+                    <h6 class="text-success">R$ {{ "%.2f"|format(product.price) }}</h6>
+                </div>
+                
+                <div class="mb-3">
+                    <small class="text-muted">Descrição:</small>
+                    <p class="card-text">{{ product.description[:100] }}{% if product.description|length > 100 %}...{% endif %}</p>
+                </div>
+                
+                <div class="mb-3">
+                    <small class="text-muted">Público-alvo:</small>
+                    <p class="card-text">{{ product.target_audience[:80] }}{% if product.target_audience|length > 80 %}...{% endif %}</p>
+                </div>
+                
+                <div class="mb-3">
+                    <small class="text-muted">Benefícios:</small>
+                    {% set benefits = product.key_benefits|from_json %}
+                    {% if benefits %}
+                        <ul class="list-unstyled">
+                            {% for benefit in benefits[:3] %}
+                            <li><small><i class="fas fa-check text-success"></i> {{ benefit }}</small></li>
+                            {% endfor %}
+                            {% if benefits|length > 3 %}
+                            <li><small class="text-muted">... e mais {{ benefits|length - 3 }} benefícios</small></li>
+                            {% endif %}
+                        </ul>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">
+                    Criado em {{ product.created_at.strftime('%d/%m/%Y') }}
+                </small>
+                <div class="btn-group w-100 mt-2" role="group">
+                    <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-edit"></i>
+                        Editar
+                    </a>
+                    <form method="POST" action="{{ url_for('delete_product', product_id=product.id) }}" style="display: inline;">
+                        <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Tem certeza que deseja remover este produto?')">
+                            <i class="fas fa-trash"></i>
+                            Remover
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-5">
+    <i class="fas fa-box fa-3x text-muted mb-3"></i>
+    <h4 class="text-muted">Nenhum produto cadastrado</h4>
+    <p class="text-muted">Crie seu primeiro produto para começar a vender com IA</p>
+    <a href="{{ url_for('new_product') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i>
+        Criar Primeiro Produto
+    </a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,23 @@
+Resumo do Projeto: IA de Vendas para WhatsApp
+Objetivo Principal:
+Desenvolver uma inteligência artificial que atue como um agente de vendas automatizado no WhatsApp. O objetivo é que a IA conduza a conversa com os clientes para a venda de um produto digital, utilizando uma abordagem de copywriting dinâmico e adaptável.
+
+Requisitos Fundamentais:
+
+Plataforma de Interação: O sistema deve estar integrado ao WhatsApp para interagir diretamente com os clientes que entram em contato.
+
+Aprendizado por Reforço (Reforço Positivo): A IA não pode ser um simples chatbot com roteiro fixo. Ela deve ser capaz de aprender e otimizar suas estratégias de vendas. A "recompensa" que guia o aprendizado é a venda do produto digital. Toda vez que uma conversa resulta em uma compra, a IA deve receber um reforço positivo, permitindo que ela ajuste suas futuras abordagens de copywriting.
+
+Geração de Respostas Dinâmicas: Para criar uma experiência de vendas mais humana e persuasiva, a IA deve gerar as respostas em tempo real, em vez de usar textos pré-definidos. Para isso, o projeto deve integrar um modelo de linguagem generativo via API.
+
+Foco no Público Brasileiro: O modelo deve ser capaz de gerar respostas em português com sotaque e nuances culturais que ressoem com o público brasileiro.
+
+Componentes da Solução Técnica (Critérios de Seleção):
+
+Estrutura de Conversação: Utilizar um framework de código aberto como o Rasa para gerenciar o fluxo da conversa e entender a intenção do cliente.
+
+Geração de Texto: Integrar uma API de IA generativa gratuita (como o ChatGPT, DeepSeek ou modelos de plataformas como o OpenRouter) para criar as mensagens de copywriting. A escolha deve focar em modelos que ofereçam um plano gratuito ou créditos iniciais suficientes para o protótipo.
+
+Controle e Aprendizado: O sistema deve ser orquestrado para conectar o chatbot, a API de IA e o processo de venda. Quando uma venda for detectada, o sistema deve enviar um sinal de "sucesso" de volta ao modelo de IA para otimizar suas futuras respostas (aprendizado por reforço).
+
+Custo Zero: A solução completa, incluindo hospedagem, deve ser totalmente gratuita, sem a necessidade de cartão de crédito para a validação do conceito.
