@@ -12,7 +12,9 @@ class AIAgent:
         # OpenRouter API setup
         self.api_key = os.environ.get("OPENROUTER_API_KEY", "demo_key")
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = "meta-llama/llama-3.1-8b-instruct:free"  # Free model on OpenRouter
+        
+        # O nome do modelo que você escolheu, no formato correto
+        self.model = "deepseek/deepseek-r1-0528-qwen3-8b:free"
         
         # O HTTP-Referer deve ser o endereço do seu servidor no Render
         self.headers = {
@@ -95,12 +97,10 @@ class AIAgent:
                 {"role": "user", "content": prompt}
             ], temperature=0.3)
             
-            if response and 'choices' in response:
+            if response and 'choices' in response and response['choices'][0]['message']['content']:
                 content = response['choices'][0]['message']['content']
                 if content:
-                    result = json.loads(content)
-                    logger.info(f"Customer intent analysis: {result}")
-                    return result
+                    return json.loads(content)
             
         except Exception as e:
             logger.error(f"Error analyzing customer intent: {e}")
@@ -284,7 +284,7 @@ class AIAgent:
                 {"role": "user", "content": prompt}
             ], temperature=0.2)
             
-            if response and 'choices' in response:
+            if response and 'choices' in response and response['choices'][0]['message']['content']:
                 content = response['choices'][0]['message']['content']
                 if content:
                     return json.loads(content)
@@ -297,4 +297,4 @@ class AIAgent:
                 "purchase_signals": [],
                 "next_action": "continue_conversation"
             }
-
+}
