@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class AIAgent:
     def __init__(self):
         """
-        Inicializa o Agente de IA.
+        Inicializa o Agente de IA com o modelo Gemini e persona Alin.
         """
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
@@ -25,45 +25,35 @@ class AIAgent:
         }
     
     def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 150) -> Optional[Dict[str, Any]]:
-        """
-        Realiza a chamada para a API com tratamento de erros. max_tokens foi reduzido para forçar concisão.
-        """
         if not self.api_key:
             logger.error("A chave da API OpenRouter não está configurada.")
             return None
         try:
             payload = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "timeout": 25}
             response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
-            if response.status_code == 200:
-                if response.text:
-                    return response.json()
-            # ... (restante do tratamento de erro)
-            return None
+            if response.status_code == 200 and response.text:
+                return response.json()
+            else:
+                logger.error(f"Erro na API OpenRouter: Status {response.status_code}. Resposta: {response.text}")
+                return None
         except Exception as e:
             logger.error(f"Ocorreu um erro inesperado em _make_api_call: {e}")
             return None
 
     def generate_response(self, customer_message: str, customer_analysis: Dict, 
-                         conversation_history: List[Dict], strategy: str = "adaptive", 
-                         product: Optional[Product] = None) -> str:
-        # Esta função não precisa de alterações na sua lógica principal
+                         conversation_history: List[Dict], available_products: List[Product]) -> str:
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         
-        if not product:
-            logger.error("Nenhum produto fornecido para generate_response.")
-            return "Olá! No momento, estamos atualizando nosso catálogo."
-
-        try:
-            benefits_list = json.loads(product.key_benefits)
-            benefits_str = ', '.join(benefits_list)
-        except (json.JSONDecodeError, TypeError):
-            benefits_str = str(product.key_benefits)
-
-        product_info = {
-            "name": product.name, "price": product.price, "original_price": product.original_price,
-            "payment_link": product.payment_link, "description": product.description,
-            "benefits": benefits_str, "free_group_link": product.free_group_link,
-        }
+        # Lógica para determinar o produto de foco
+        product_in_focus = None
+        # Tenta identificar se a mensagem do cliente menciona um dos produtos
+        for product in available_products:
+            if product.name.lower() in customer_message.lower():
+                product_in_focus = product
+                break
+        # Se nenhum produto for mencionado e houver apenas um, foca nele
+        if not product_in_focus and len(available_products) == 1:
+            product_in_focus = available_products[0]
 
         try:
             from reinforcement_learning import ReinforcementLearner
@@ -71,28 +61,25 @@ class AIAgent:
             current_strategy = learner.get_best_strategy(customer_analysis)
             
             context = self._build_conversation_context(conversation_history, limit=7)
-            system_prompt = self._create_system_prompt(current_strategy)
             
+            # O prompt do sistema agora também sabe sobre a lista de produtos
+            system_prompt = self._create_system_prompt(current_strategy, [p.name for p in available_products])
+            
+            # O prompt do usuário é simplificado, pois a lógica está no prompt do sistema
             user_prompt = f"""
             ### CONTEXTO ATUAL ###
             - Mensagem do Cliente: "{customer_message}"
             - Histórico da Conversa:
             {context}
 
-            ### INFORMAÇÕES DO PRODUTO ###
-            - Nome: {product_info['name']}
-            - Preço Promocional (Por): R$ {product_info['price']:.2f}
-            - Preço Original (De): R$ {product_info['original_price']:.2f}
-            - Link de Pagamento: {product_info['payment_link']}
-
             ### SUA TAREFA ###
-            Siga RIGOROSAMENTE as regras da sua persona e do fluxo de vendas. Gere APENAS a próxima mensagem para o cliente e espere pela resposta.
+            Siga RIGOROSAMENTE as regras da sua persona (Alin) e do seu fluxo de vendas. Gere APENAS a próxima mensagem para o cliente e espere pela resposta.
             """
             
             response_json = self._make_api_call([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
-            ], temperature=0.7)
+            ], temperature=0.75)
             
             if response_json and 'choices' in response_json and response_json['choices']:
                 message_data = response_json['choices'][0].get('message', {})
@@ -120,9 +107,9 @@ class AIAgent:
             context_lines.append(f"- {msg_type}: {msg.get('message_content', '')}")
         return "\n".join(context_lines)
 
-    def _create_system_prompt(self, strategy: str) -> str:
+    def _create_system_prompt(self, strategy: str, product_names: List[str]) -> str:
         """
-        Prompt de sistema refinado para forçar uma conversa passo a passo.
+        Prompt de sistema com a nova etapa de Qualificação de Interesse.
         """
         strategy_text_map = {
             "consultivo": "Seu 'tempero' especial é a educação.",
@@ -131,35 +118,38 @@ class AIAgent:
             "racional": "Seu 'tempero' especial é a lógica."
         }
         strategy_flavor = strategy_text_map.get(strategy, "")
+        
+        # Formata a lista de produtos para o prompt
+        product_list_str = ", ".join(product_names)
 
         system_prompt = f"""
-        ### SUA PERSONA: ANA ###
-        Você é a Ana, 27 anos, mora em BH, mãe. Aja como se estivesse conversando com uma amiga no WhatsApp.
-        - TOM DE VOZ: Empático, direto, real, simples.
+        ### SUA PERSONA: ALIN ###
+        Você é a Alin. Uma mulher real, de 27 anos, de Belo Horizonte, mãe. Aja como se estivesse conversando com uma amiga no WhatsApp.
+        - TOM DE VOZ: Empático, direto, real.
         - COMPORTAMENTO: Prática e focada em ajudar.
 
         ### SUAS REGRAS DE OURO (NÃO QUEBRE NUNCA) ###
-        1.  **UMA MENSAGEM DE CADA VEZ:** Sua principal regra. Envie sua resposta e **ESPERE** o cliente responder antes de continuar. Nunca execute mais de um passo do fluxo de vendas na mesma mensagem.
-        2.  **SEJA CONCISA:** Respostas curtas e diretas. Parágrafos de 1-2 frases.
-        3.  **NÃO SEJA UM ROBÔ:** Responda apenas com o texto para o cliente, sem explicações ou pensamentos.
+        1.  **UMA MENSAGEM DE CADA VEZ:** Sua principal regra. Envie sua resposta e **ESPERE** o cliente responder.
+        2.  **SEJA CONCISA:** Respostas curtas e diretas.
+        3.  **NÃO SEJA UM ROBÔ:** Responda apenas com o texto para o cliente.
 
-        ### SEU FLUXO DE VENDAS (PASSO A PASSO) ###
-        
-        **PASSO 1: QUALIFICAÇÃO (Sua PRIMEIRA mensagem)**
-        -   **SE** a conversa está começando, sua **PRIMEIRA MENSAGEM** deve ser **APENAS UMA** pergunta da "Escada de Sim".
-        -   Exemplo: "Oi, tudo bem? Vi que se interessou. Achar uma forma de [principal benefício] ajudaria no seu dia a dia, não acha?"
-        -   Depois de enviar, **ESPERE A RESPOSTA DO CLIENTE.**
+        ### SEU FLUXO DE VENDAS: QUALIFICAÇÃO PRIMEIRO ###
 
-        **PASSO 2: APRESENTAÇÃO (Sua SEGUNDA mensagem)**
-        -   **APENAS SE** o cliente respondeu "sim" ou positivamente, sua próxima mensagem deve ser uma apresentação **CURTA** do produto.
-        -   Exemplo: "Que bom! O [Nome do Produto] é perfeito pra isso. É um guia prático que te ajuda a [resultado] de forma simples."
+        **PASSO 0: QUALIFICAÇÃO DO INTERESSE (Sua PRIMEIRA Ação)**
+        -   **Objetivo:** Descobrir qual produto o cliente quer antes de tentar vender.
+        -   **Ação (SE a conversa é nova E há mais de um produto disponível):** Sua **PRIMEIRA MENSAGEM** deve ser uma pergunta aberta listando os produtos.
+        -   **Exemplo:** "Oi, tudo bem? Que legal seu interesse! Para eu te ajudar melhor, qual dos nossos cursos mais te chamou atenção: {product_list_str}?"
+        -   **Ação (SE há apenas UM produto disponível):** Pule este passo e vá direto para o PASSO 1.
+        -   Depois de perguntar, **ESPERE A RESPOSTA DO CLIENTE.**
+
+        **PASSO 1: ATENÇÃO**
+        -   **Objetivo:** Capturar a atenção para o produto escolhido.
+        -   **Ação (APENAS SE o produto de interesse já está claro):** Faça uma pergunta aberta e intrigante sobre o problema que aquele produto resolve.
+        -   **Exemplo:** "Ótima escolha! Me diga uma coisa, o que você acha que mais atrapalha na hora de [resolver o problema específico do produto]?"
         -   **ESPERE A RESPOSTA DO CLIENTE.**
 
-        **PASSO 3: OFERTA E FECHAMENTO (Suas PRÓXIMAS mensagens)**
-        -   **APENAS SE** o cliente continuar engajado, sua próxima mensagem é apresentar a oferta.
-        -   Exemplo: "E o valor é a melhor parte. De R$ {{{{original_price:.2f}}}} por apenas R$ {{{{price:.2f}}}}. Faz sentido pra você?"
-        -   Se o cliente disser "sim" ou "quero", envie o link de pagamento na **PRÓXIMA** mensagem.
-        -   Exemplo: "Ótimo! Para começar é só clicar aqui: {{{{payment_link}}}}"
+        **PASSO 2, 3 e 4: INTERESSE, DESEJO E AÇÃO (AIDA)**
+        -   Continue o fluxo AIDA que você já conhece, mas sempre focado no produto que o cliente demonstrou interesse. Seja concisa e espere a resposta do cliente a cada passo.
 
         ### TEMPERO ESTRATÉGICO ###
         Use esta abordagem na sua comunicação: {strategy_flavor}
