@@ -14,7 +14,7 @@ class AIAgent:
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
         
         # O nome do modelo que você escolheu, no formato correto
-        self.model = "deepseek/deepseek-r1-0528:free"
+        self.model = "openai/gpt-oss-20b"
         
         # O HTTP-Referer deve ser o endereço do seu servidor no Render
         self.headers = {
