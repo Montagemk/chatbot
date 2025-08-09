@@ -21,9 +21,9 @@ def init_handlers():
     if learner is None:
         learner = ReinforcementLearner()
 
+# ... (outras rotas como '/', '/webhook', '/simulate_sale' permanecem as mesmas)
 @app.route('/')
 def dashboard():
-    """Main dashboard with overview statistics"""
     try:
         if learner is None:
             init_handlers()
@@ -36,23 +36,13 @@ def dashboard():
         recent_sales = Sale.query.filter(Sale.sale_date >= week_ago).count()
         conversion_rate = (total_sales / total_customers * 100) if total_customers > 0 else 0
         learning_stats = learner.get_learning_statistics()
-        
-        return render_template('dashboard.html', 
-                             total_customers=total_customers,
-                             total_conversations=total_conversations,
-                             total_sales=total_sales,
-                             total_revenue=total_revenue,
-                             recent_customers=recent_customers,
-                             recent_sales=recent_sales,
-                             conversion_rate=conversion_rate,
-                             learning_stats=learning_stats)
+        return render_template('dashboard.html', total_customers=total_customers, total_conversations=total_conversations, total_sales=total_sales, total_revenue=total_revenue, recent_customers=recent_customers, recent_sales=recent_sales, conversion_rate=conversion_rate, learning_stats=learning_stats)
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         return render_template('dashboard.html', error=str(e))
 
 @app.route('/webhook', methods=['POST'])
 def web_chat_webhook():
-    """Handle incoming messages from the web chat interface."""
     try:
         if ai_agent is None:
             init_handlers()
@@ -89,7 +79,6 @@ def web_chat_webhook():
 
 @app.route('/simulate_sale', methods=['POST'])
 def simulate_sale():
-    # Esta função permanece a mesma
     try:
         if learner is None: init_handlers()
         data = request.get_json()
@@ -113,11 +102,19 @@ def simulate_sale():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# --- ROTA DE CONVERSAS CORRIGIDA ---
 @app.route('/conversations')
 def conversations():
-    page = request.args.get('page', 1, type=int)
-    customers = Customer.query.order_by(Customer.last_interaction.desc()).paginate(page=page, per_page=20, error_out=False)
-    return render_template('conversations.html', customers=customers)
+    try:
+        page = request.args.get('page', 1, type=int)
+        customers = Customer.query.order_by(Customer.last_interaction.desc()).paginate(
+            page=page, per_page=20, error_out=False
+        )
+        # CORREÇÃO: Passa a hora atual ('now') para o template poder fazer cálculos de tempo.
+        return render_template('conversations.html', customers=customers, now=datetime.utcnow())
+    except Exception as e:
+        logger.error(f"Error loading conversations page: {e}")
+        return render_template('conversations.html', error=str(e))
 
 @app.route('/customer/<int:customer_id>')
 def customer_detail(customer_id):
@@ -137,45 +134,31 @@ def api_learning_stats():
     stats = learner.get_learning_statistics()
     return jsonify(stats)
 
-# --- ROTA DE PRODUTOS CORRIGIDA ---
 @app.route('/products')
 def products():
-    """
-    Mostra TODOS os produtos, incluindo os inativos, para permitir o gerenciamento.
-    """
-    try:
-        all_products = Product.query.order_by(Product.created_at.desc()).all()
-        return render_template('products.html', products=all_products)
-    except Exception as e:
-        logger.error(f"Error loading products page: {e}")
-        return render_template('products.html', error=str(e), products=[])
+    all_products = Product.query.order_by(Product.created_at.desc()).all()
+    return render_template('products.html', products=all_products)
 
 @app.route('/products/new', methods=['GET', 'POST'])
 def new_product():
-    # A rota de criação permanece a mesma, pois o 'is_active' já tem um default=True no model.
+    # Esta rota permanece a mesma
     if request.method == 'POST':
         try:
-            name = request.form.get('name')
-            niche = request.form.get('niche')
+            name=request.form.get('name')
+            niche=request.form.get('niche')
             original_price_str = request.form.get('original_price')
             original_price = float(original_price_str) if original_price_str else None
-            price = float(request.form.get('price', 0))
-            description = request.form.get('description')
-            target_audience = request.form.get('target_audience')
-            sales_approach = request.form.get('sales_approach', 'consultivo')
+            price=float(request.form.get('price', 0))
+            description=request.form.get('description')
+            target_audience=request.form.get('target_audience')
+            sales_approach=request.form.get('sales_approach', 'consultivo')
             benefits_text = request.form.get('key_benefits', '')
             benefits_list = [benefit.strip() for benefit in benefits_text.split('\n') if benefit.strip()]
             key_benefits = json.dumps(benefits_list)
-            payment_link = request.form.get('payment_link')
-            product_image_url = request.form.get('product_image_url')
-            free_group_link = request.form.get('free_group_link')
-            
-            product = Product(
-                name=name, niche=niche, original_price=original_price, price=price,
-                description=description, target_audience=target_audience, key_benefits=key_benefits,
-                sales_approach=sales_approach, payment_link=payment_link,
-                product_image_url=product_image_url, free_group_link=free_group_link
-            )
+            payment_link=request.form.get('payment_link')
+            product_image_url=request.form.get('product_image_url')
+            free_group_link=request.form.get('free_group_link')
+            product = Product(name=name, niche=niche, original_price=original_price, price=price, description=description, target_audience=target_audience, key_benefits=key_benefits, sales_approach=sales_approach, payment_link=payment_link, product_image_url=product_image_url, free_group_link=free_group_link)
             db.session.add(product)
             db.session.commit()
             flash(f'Produto "{name}" criado com sucesso!', 'success')
@@ -185,12 +168,9 @@ def new_product():
             db.session.rollback()
     return render_template('new_product.html')
 
-# --- ROTA DE EDIÇÃO CORRIGIDA ---
 @app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
 def edit_product(product_id):
-    """
-    Permite a edição de um produto e salva o status 'is_active'.
-    """
+    # Esta rota permanece a mesma
     product = Product.query.get_or_404(product_id)
     if request.method == 'POST':
         try:
@@ -208,10 +188,7 @@ def edit_product(product_id):
             product.payment_link = request.form.get('payment_link')
             product.product_image_url = request.form.get('product_image_url')
             product.free_group_link = request.form.get('free_group_link')
-            
-            # --- LÓGICA PARA SALVAR O STATUS ATIVO/INATIVO ---
             product.is_active = request.form.get('is_active') == 'on'
-            
             product.updated_at = datetime.utcnow()
             db.session.commit()
             flash(f'Produto "{product.name}" atualizado com sucesso!', 'success')
@@ -219,7 +196,6 @@ def edit_product(product_id):
         except Exception as e:
             flash(f'Erro ao atualizar produto: {e}', 'error')
             db.session.rollback()
-
     try:
         benefits_list = json.loads(product.key_benefits)
         benefits_text = '\n'.join(benefits_list)
@@ -229,10 +205,8 @@ def edit_product(product_id):
 
 @app.route('/products/<int:product_id>/delete', methods=['POST'])
 def delete_product(product_id):
-    # Esta função permanece a mesma
     try:
         product = Product.query.get_or_404(product_id)
-        # Em vez de deletar, marcamos como inativo permanentemente
         product.is_active = False
         product.updated_at = datetime.utcnow()
         db.session.commit()
@@ -241,17 +215,35 @@ def delete_product(product_id):
         flash(f'Erro ao remover produto: {str(e)}', 'error')
     return redirect(url_for('products'))
 
+# --- ROTA DE NICHOS CORRIGIDA ---
 @app.route('/niches')
 def niches():
-    # Esta função permanece a mesma
-    from sqlalchemy import func
-    niche_stats = db.session.query(
-        Product.niche,
-        func.count(Product.id).label('total_products'),
-        func.count(Sale.id).label('total_sales'),
-        func.sum(Sale.sale_amount).label('total_revenue'),
-        func.avg(Sale.sale_amount).label('avg_sale_value')
-    ).outerjoin(Sale, Product.id == Sale.product_id
-    ).filter(Product.is_active == True
-    ).group_by(Product.niche).all()
-    return render_template('niches.html', niche_stats=niche_stats)
+    try:
+        from sqlalchemy import func
+        
+        niche_query_result = db.session.query(
+            Product.niche,
+            func.count(Product.id).label('total_products'),
+            func.count(Sale.id).label('total_sales'),
+            func.sum(Sale.sale_amount).label('total_revenue'),
+            func.avg(Sale.sale_amount).label('avg_sale_value')
+        ).outerjoin(Sale, Product.id == Sale.product_id
+        ).filter(Product.is_active == True
+        ).group_by(Product.niche).all()
+        
+        # CORREÇÃO: Converte o resultado da query para uma lista de dicionários.
+        niche_stats = [
+            {
+                "niche": row.niche,
+                "total_products": row.total_products,
+                "total_sales": row.total_sales,
+                "total_revenue": row.total_revenue,
+                "avg_sale_value": row.avg_sale_value,
+            }
+            for row in niche_query_result
+        ]
+        
+        return render_template('niches.html', niche_stats=niche_stats)
+    except Exception as e:
+        logger.error(f"Error loading niches page: {e}")
+        return render_template('niches.html', error=str(e))
