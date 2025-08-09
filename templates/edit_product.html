@@ -12,114 +12,97 @@
             </h1>
             <a href="{{ url_for('products') }}" class="btn btn-outline-secondary">
                 <i class="fas fa-arrow-left"></i>
-                Voltar
+                Voltar para Produtos
             </a>
         </div>
         
         <p class="lead text-muted">
-            Editando: <strong>{{ product.name }}</strong>
+            Editando as informações do produto: <strong>{{ product.name }}</strong>
         </p>
     </div>
 </div>
 
-<div class="row">
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-info-circle"></i>
-                    Informações do Produto
-                </h5>
-            </div>
-            <div class="card-body">
-                <form method="POST">
-                    <div class="row">
-                        <div class="col-md-8 mb-3">
-                            <label for="name" class="form-label">Nome do Produto *</label>
-                            <input type="text" class="form-control" id="name" name="name" value="{{ product.name }}" required maxlength="200">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label for="price" class="form-label">Preço (R$) *</label>
-                            <input type="number" class="form-control" id="price" name="price" value="{{ product.price }}" step="0.01" min="0" required>
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="niche" class="form-label">Nicho/Categoria *</label>
-                            <input type="text" class="form-control" id="niche" name="niche" value="{{ product.niche }}" required maxlength="100">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="sales_approach" class="form-label">Estratégia de Vendas *</label>
-                            <select class="form-select" id="sales_approach" name="sales_approach" required>
-                                <option value="consultivo" {% if product.sales_approach == 'consultivo' %}selected{% endif %}>Consultivo - Educação e Consultoria</option>
-                                <option value="escassez" {% if product.sales_approach == 'escassez' %}selected{% endif %}>Escassez - Urgência e Exclusividade</option>
-                                <option value="emocional" {% if product.sales_approach == 'emocional' %}selected{% endif %}>Emocional - Histórias e Transformação</option>
-                                <option value="racional" {% if product.sales_approach == 'racional' %}selected{% endif %}>Racional - Dados e Resultados</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="description" class="form-label">Descrição do Produto *</label>
-                        <textarea class="form-control" id="description" name="description" rows="4" required>{{ product.description }}</textarea>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="target_audience" class="form-label">Público-alvo *</label>
-                        <textarea class="form-control" id="target_audience" name="target_audience" rows="3" required>{{ product.target_audience }}</textarea>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="key_benefits" class="form-label">Principais Benefícios *</label>
-                        <textarea class="form-control" id="key_benefits" name="key_benefits" rows="6" required placeholder="Digite um benefício por linha...">{{ benefits_text }}</textarea>
-                        <div class="form-text">Liste os principais benefícios, um por linha.</div>
-                    </div>
-                    
-                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i>
-                            Salvar Alterações
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="fas fa-info-circle"></i>
+            Informações do Produto
+        </h5>
     </div>
-    
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-info"></i>
-                    Informações Atuais
-                </h5>
+    <div class="card-body">
+        <form method="POST">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="name" class="form-label">Nome do Produto *</label>
+                    <input type="text" class="form-control" id="name" name="name" value="{{ product.name }}" required maxlength="200">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="niche" class="form-label">Nicho/Categoria *</label>
+                    <input type="text" class="form-control" id="niche" name="niche" value="{{ product.niche }}" required maxlength="100">
+                </div>
             </div>
-            <div class="card-body">
-                <p><strong>Criado em:</strong> {{ product.created_at.strftime('%d/%m/%Y às %H:%M') }}</p>
-                {% if product.updated_at != product.created_at %}
-                <p><strong>Última atualização:</strong> {{ product.updated_at.strftime('%d/%m/%Y às %H:%M') }}</p>
-                {% endif %}
-                <p><strong>Status:</strong> 
-                    <span class="badge bg-{{ 'success' if product.is_active else 'danger' }}">
-                        {{ 'Ativo' if product.is_active else 'Inativo' }}
-                    </span>
-                </p>
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="original_price" class="form-label">Preço "De" (R$)</label>
+                    <input type="number" class="form-control" id="original_price" name="original_price" value="{{ product.original_price or '' }}" step="0.01" min="0" placeholder="Valor original (opcional)">
+                    <div class="form-text">Opcional. Use para mostrar um desconto.</div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="price" class="form-label">Preço "Por" (R$) *</label>
+                    <input type="number" class="form-control" id="price" name="price" value="{{ product.price }}" step="0.01" min="0" required>
+                </div>
             </div>
-        </div>
-        
-        <div class="card mt-3">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-chart-line"></i>
-                    Performance
-                </h5>
+            
+            <div class="mb-3">
+                <label for="sales_approach" class="form-label">Estratégia de Vendas *</label>
+                <select class="form-select" id="sales_approach" name="sales_approach" required>
+                    <option value="consultivo" {% if product.sales_approach == 'consultivo' %}selected{% endif %}>Consultivo - Educação e Consultoria</option>
+                    <option value="escassez" {% if product.sales_approach == 'escassez' %}selected{% endif %}>Escassez - Urgência e Exclusividade</option>
+                    <option value="emocional" {% if product.sales_approach == 'emocional' %}selected{% endif %}>Emocional - Histórias e Transformação</option>
+                    <option value="racional" {% if product.sales_approach == 'racional' %}selected{% endif %}>Racional - Dados e Resultados</option>
+                </select>
             </div>
-            <div class="card-body">
-                <!-- Add sales statistics for this product here -->
-                <p class="text-muted">Estatísticas de vendas em breve...</p>
+            
+            <div class="mb-3">
+                <label for="description" class="form-label">Descrição do Produto *</label>
+                <textarea class="form-control" id="description" name="description" rows="4" required>{{ product.description }}</textarea>
             </div>
-        </div>
+            <div class="mb-3">
+                <label for="target_audience" class="form-label">Público-alvo *</label>
+                <textarea class="form-control" id="target_audience" name="target_audience" rows="3" required>{{ product.target_audience }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label for="key_benefits" class="form-label">Principais Benefícios *</label>
+                <textarea class="form-control" id="key_benefits" name="key_benefits" rows="6" required placeholder="Digite um benefício por linha...">{{ benefits_text }}</textarea>
+                <div class="form-text">Liste os principais benefícios, um por linha.</div>
+            </div>
+            
+            <hr class="my-4">
+            
+            <h5 class="mb-3"><i class="fas fa-link"></i> Links e Mídia</h5>
+            
+            <div class="mb-3">
+                <label for="payment_link" class="form-label">Link de Pagamento</label>
+                <input type="url" class="form-control" id="payment_link" name="payment_link" value="{{ product.payment_link or '' }}" placeholder="https://seu-checkout.com/produto">
+            </div>
+            <div class="mb-3">
+                <label for="product_image_url" class="form-label">Foto do Produto (URL)</label>
+                <input type="url" class="form-control" id="product_image_url" name="product_image_url" value="{{ product.product_image_url or '' }}" placeholder="https://site.com/imagem-do-produto.png">
+            </div>
+            <div class="mb-3">
+                <label for="free_group_link" class="form-label">Link do Grupo de Aulas Gratuitas</label>
+                <input type="url" class="form-control" id="free_group_link" name="free_group_link" value="{{ product.free_group_link or '' }}" placeholder="https://chat.whatsapp.com/seu-grupo-gratuito">
+            </div>
+
+            <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                <a href="{{ url_for('products') }}" class="btn btn-outline-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i>
+                    Salvar Alterações
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}
