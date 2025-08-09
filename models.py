@@ -9,11 +9,22 @@ class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     niche = db.Column(db.String(100), nullable=False)
-    price = db.Column(db.Float, nullable=False)
+    
+    # --- CAMPO DE PREÇO ATUALIZADO ---
+    # Adicionado "original_price" para o valor "De" e "price" agora representa o valor "Por"
+    original_price = db.Column(db.Float, nullable=True)  # Preço "De" (Opcional)
+    price = db.Column(db.Float, nullable=False) # Preço "Por" (Obrigatório)
+
     description = db.Column(db.Text, nullable=False)
     target_audience = db.Column(db.Text, nullable=False)
     key_benefits = db.Column(db.Text, nullable=False)  # JSON string of benefits list
-    sales_approach = db.Column(db.String(50), nullable=False, default='consultivo')  # consultivo, escassez, emocional, racional
+    sales_approach = db.Column(db.String(50), nullable=False, default='consultivo')
+    
+    # --- NOVOS CAMPOS ADICIONADOS ---
+    payment_link = db.Column(db.String(500), nullable=True)
+    product_image_url = db.Column(db.String(500), nullable=True)
+    free_group_link = db.Column(db.String(500), nullable=True)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
