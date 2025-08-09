@@ -257,6 +257,7 @@ class AIAgent:
         - Mantenha mensagens concisas (máximo 2-3 parágrafos)
         - Termine com uma pergunta ou call-to-action quando apropriado
         - Adapte-se ao nível de interesse demonstrado pelo cliente
+        - Procure usar a escada de sim como modelo de vendas
         """
 
     def detect_purchase_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
@@ -297,4 +298,4 @@ class AIAgent:
                 "purchase_signals": [],
                 "next_action": "continue_conversation"
             }
-}
+
