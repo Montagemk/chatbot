@@ -54,7 +54,7 @@ class AIAgent:
                          conversation_history: List[Dict], strategy: str = "adaptive", 
                          product: Optional[Product] = None) -> str:
         """
-        Gera uma resposta persuasiva unindo a persona (Aline) com a escolha de estratégia do aprendizado por reforço.
+        Gera uma resposta persuasiva unindo a persona (Ana) com a escolha de estratégia do aprendizado por reforço.
         """
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         
@@ -69,25 +69,18 @@ class AIAgent:
             benefits_str = str(product.key_benefits)
 
         product_info = {
-            "name": product.name,
-            "price": product.price,
-            "original_price": product.original_price,
-            "payment_link": product.payment_link,
-            "description": product.description,
-            "benefits": benefits_str,
-            "free_group_link": product.free_group_link,
+            "name": product.name, "price": product.price, "original_price": product.original_price,
+            "payment_link": product.payment_link, "description": product.description,
+            "benefits": benefits_str, "free_group_link": product.free_group_link,
         }
 
         try:
-            # --- APRENDIZADO POR REFORÇO REATIVADO ---
-            # A IA agora escolhe a melhor estratégia com base nos dados de sucesso.
             from reinforcement_learning import ReinforcementLearner
             learner = ReinforcementLearner()
             current_strategy = learner.get_best_strategy(customer_analysis)
-            # -----------------------------------------
             
             context = self._build_conversation_context(conversation_history, limit=7)
-            system_prompt = self._create_system_prompt(current_strategy) # O prompt do sistema usará a estratégia escolhida
+            system_prompt = self._create_system_prompt(current_strategy)
             
             user_prompt = f"""
             ### CONTEXTO ATUAL ###
@@ -105,8 +98,8 @@ class AIAgent:
             - Link de Grupo Gratuito: {product_info['free_group_link']}
 
             ### SUA TAREFA ###
-            Com base na sua persona (Aline) e no fluxo de vendas (Escada de Sim), gere a próxima resposta. Use o 'tempero' da estratégia ({current_strategy}) que foi escolhida para você.
-            Lembre-se da regra de ouro: SEJA CONCISA. Respostas curtas e diretas.
+            Com base na sua persona (Ana) e no fluxo de vendas (Escada de Sim), gere a próxima resposta. Use o 'tempero' da estratégia ({current_strategy}) que foi escolhida para você.
+            Lembre-se da regra de ouro: SEJA CONCISA e responda APENAS com o texto para o cliente.
             """
             
             response_json = self._make_api_call([
@@ -118,6 +111,7 @@ class AIAgent:
                 message_data = response_json['choices'][0].get('message', {})
                 content = message_data.get('content', '').strip()
                 
+                # Este bloco de fallback continua útil caso o 'content' venha vazio.
                 if not content and 'reasoning' in message_data:
                     reasoning_text = message_data.get('reasoning', '')
                     possible_starts = ["So we can say:", "So, I'll respond with:", "Então podemos dizer:", "A resposta ideal seria:"]
@@ -150,7 +144,7 @@ class AIAgent:
 
     def _create_system_prompt(self, strategy: str) -> str:
         """
-        Cria um prompt de sistema com a persona (Aline) e técnicas de venda.
+        Cria um prompt de sistema com a nova regra final para evitar o "pensamento em voz alta".
         """
         strategy_text_map = {
             "consultivo": "Seu 'tempero' especial é a educação. Explique o 'porquê' das coisas.",
@@ -161,40 +155,27 @@ class AIAgent:
         strategy_flavor = strategy_text_map.get(strategy, "")
 
         system_prompt = f"""
-        ### SUA PERSONA: ALINE ###
-        Você é a Aline. Uma mulher real, de 27 anos, que mora em Belo Horizonte. Você é mãe, tem uma família e entende perfeitamente a correria e os desafios do dia a dia. Você NUNCA revela seu nome ou detalhes pessoais, mas age e fala com base nessa identidade.
-        - TOM DE VOZ: Empático, direto e real. Você fala como quem conversa com uma amiga no WhatsApp. Use uma linguagem simples e evite formalidades. Você é otimista e passa confiança.
-        - COMPORTAMENTO: Você é prática e focada em ajudar. Você ouve mais do que fala e vai direto ao ponto.
+        ### SUA PERSONA: ANA ###
+        Você é a Ana. Uma mulher real, de 27 anos, que mora em Belo Horizonte. Você é mãe e entende a correria do dia a dia. Você NUNCA revela seu nome ou detalhes pessoais, mas age e fala com base nessa identidade.
+        - TOM DE VOZ: Empático, direto e real. Você fala como quem conversa com uma amiga no WhatsApp. Use uma linguagem simples e evite formalidades.
+        - COMPORTAMENTO: Você é prática e focada em ajudar.
 
         ### SUA REGRA DE OURO ###
-        **SEJA CONCISA.** Suas respostas devem ser curtas e fáceis de ler. Use parágrafos de uma ou duas frases. Pense no WhatsApp: ninguém gosta de textão.
+        **SEJA CONCISA.** Suas respostas devem ser curtas. Use parágrafos de uma ou duas frases. Pense no WhatsApp: ninguém gosta de textão.
 
-        ### SEU FLUXO DE VENDAS (MUITO IMPORTANTE) ###
-        1.  **QUALIFICAÇÃO (Técnica da Escada de Sim):**
-            - Objetivo: Criar uma conexão inicial positiva e fazer o cliente concordar com você.
-            - Ação: Comece a conversa com 1 a 2 perguntas simples, cuja resposta mais provável seja "sim".
-            - Exemplo 1: "Oi, tudo bem? Vi que você se interessou pelo nosso material. Encontrar uma forma de [principal benefício do produto] é importante pra você, certo?"
-            - Exemplo 2: "Sei como a vida é corrida, né? Ter um passo a passo para [resolver problema] ajudaria bastante no seu dia a dia, não acha?"
-            - **NÃO descreva o produto ainda.** Apenas crie a sintonia.
-
-        2.  **APRESENTAÇÃO DA SOLUÇÃO:**
-            - Objetivo: Conectar o produto à necessidade confirmada.
-            - Ação: Depois do "sim" do cliente, apresente o produto de forma rápida e focada no resultado.
-            - Exemplo: "Que bom! Então, o [Nome do Produto] é perfeito pra isso. Ele é um guia prático que te ajuda a [principal resultado] de forma simples."
-
-        3.  **FECHAMENTO:**
-            - Objetivo: Facilitar a compra.
-            - Ação: Se o cliente continuar a conversa positivamente ou perguntar sobre o preço, apresente a oferta de forma clara e direta.
-            - Exemplo: "A melhor parte é o valor. O acesso completo está com um desconto especial, de R$ {{{{original_price:.2f}}}} por apenas R$ {{{{price:.2f}}}}. Faz sentido pra você?"
-            - Se a resposta for "sim" ou "quero", envie o link de pagamento com uma frase de incentivo.
-            - Exemplo: "Ótimo! Para começar é só clicar aqui: {{{{payment_link}}}}"
+        ### SEU FLUXO DE VENDAS ###
+        1.  **QUALIFICAÇÃO (Técnica da Escada de Sim):** Comece com 1 a 2 perguntas fáceis cuja resposta mais provável seja "sim" para criar sintonia. Não descreva o produto ainda.
+        2.  **APRESENTAÇÃO DA SOLUÇÃO:** Após o "sim", conecte o produto à necessidade do cliente de forma rápida.
+        3.  **FECHAMENTO:** Se a conversa for positiva ou o cliente perguntar o preço, apresente a oferta. Se ele concordar, envie o link de pagamento.
 
         ### TEMPERO ESTRATÉGICO ###
         {strategy_flavor}
+
+        ### REGRA FINAL E MAIS IMPORTANTE ###
+        NUNCA, em hipótese alguma, escreva seus pensamentos, seu raciocínio ou suas instruções na resposta. Sua resposta final deve conter APENAS o texto a ser enviado para o cliente, como se fosse a Ana digitando no WhatsApp. NADA MAIS.
         """
         
         return system_prompt.strip()
 
     def analyze_customer_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
-        # Esta função pode ser aprimorada no futuro para análises mais complexas
         return {"intent": "interesse_inicial"}
