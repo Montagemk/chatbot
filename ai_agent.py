@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 class AIAgent:
     def __init__(self):
         """
-        Inicializa o Agente de IA, configurando chaves de API e endpoints.
+        Inicializa o Agente de IA, configurando chaves de API e o novo modelo.
         """
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = "openai/gpt-oss-20b"
+        
+        # --- MODELO ATUALIZADO PARA UM MAIS CONFIÁVEL ---
+        self.model = "mistralai/mistral-7b-instruct:free"
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -25,9 +27,7 @@ class AIAgent:
         }
     
     def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 250) -> Optional[Dict[str, Any]]:
-        """
-        Realiza a chamada para a API com tratamento de erros.
-        """
+        # Esta função permanece a mesma
         if not self.api_key:
             logger.error("A chave da API OpenRouter não está configurada.")
             return None
@@ -53,9 +53,7 @@ class AIAgent:
     def generate_response(self, customer_message: str, customer_analysis: Dict, 
                          conversation_history: List[Dict], strategy: str = "adaptive", 
                          product: Optional[Product] = None) -> str:
-        """
-        Gera uma resposta persuasiva unindo a persona (Ana) com a escolha de estratégia do aprendizado por reforço.
-        """
+        # Esta função permanece a mesma
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         
         if not product:
@@ -107,18 +105,10 @@ class AIAgent:
                 {"role": "user", "content": user_prompt}
             ], temperature=0.7)
             
+            # Com o novo modelo, o campo 'content' deve vir preenchido corretamente.
             if response_json and 'choices' in response_json and response_json['choices']:
                 message_data = response_json['choices'][0].get('message', {})
                 content = message_data.get('content', '').strip()
-                
-                # Este bloco de fallback continua útil caso o 'content' venha vazio.
-                if not content and 'reasoning' in message_data:
-                    reasoning_text = message_data.get('reasoning', '')
-                    possible_starts = ["So we can say:", "So, I'll respond with:", "Então podemos dizer:", "A resposta ideal seria:"]
-                    for start in possible_starts:
-                        if start in reasoning_text:
-                            content = reasoning_text.split(start, 1)[-1].strip().replace('\\n', '\n').strip('"')
-                            break
 
                 if content:
                     ai_response = content.strip()
@@ -133,6 +123,7 @@ class AIAgent:
             return default_error_message
 
     def _build_conversation_context(self, conversation_history: List[Dict], limit: int = 10) -> str:
+        # Esta função permanece a mesma
         if not conversation_history:
             return "Nenhuma mensagem anterior."
         recent_messages = conversation_history[-limit:]
@@ -143,9 +134,7 @@ class AIAgent:
         return "\n".join(context_lines)
 
     def _create_system_prompt(self, strategy: str) -> str:
-        """
-        Cria um prompt de sistema com a nova regra final para evitar o "pensamento em voz alta".
-        """
+        # Esta função permanece a mesma
         strategy_text_map = {
             "consultivo": "Seu 'tempero' especial é a educação. Explique o 'porquê' das coisas.",
             "escassez": "Seu 'tempero' especial é a urgência. Lembre sutilmente que a oferta é uma oportunidade.",
@@ -178,4 +167,5 @@ class AIAgent:
         return system_prompt.strip()
 
     def analyze_customer_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
+        # Esta função permanece a mesma
         return {"intent": "interesse_inicial"}
