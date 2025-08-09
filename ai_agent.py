@@ -54,10 +54,12 @@ class AIAgent:
                 timeout=30
             )
             
-            if response.status_code == 200:
+            # **Nova verificação adicionada aqui**
+            # Verifica se a resposta foi bem-sucedida E se o conteúdo não é vazio.
+            if response.status_code == 200 and response.text:
                 return response.json()
             else:
-                logger.error(f"OpenRouter API error: {response.status_code} - {response.text}")
+                logger.error(f"OpenRouter API error: {response.status_code} - Empty or invalid response.")
                 return None
                 
         except Exception as e:
