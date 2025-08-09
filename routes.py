@@ -52,73 +52,44 @@ def dashboard():
 
 @app.route('/webhook', methods=['POST'])
 def web_chat_webhook():
-    """
-    Handle incoming messages from the web chat interface.
-    This is the main entry point for customer messages.
-    """
+    """Handle incoming messages from the web chat interface."""
     try:
-        # Garante que os handlers foram inicializados
         if ai_agent is None:
             init_handlers()
-            
         webhook_data = request.get_json()
         message_content = webhook_data.get('message', '')
         sender_id = webhook_data.get('sender', 'web_user')
-        
         if not message_content:
             return jsonify([{"text": "Mensagem vazia."}]), 400
-
-        # --- LÓGICA ATUALIZADA: BUSCA TODOS OS PRODUTOS ATIVOS ---
-        # Em vez de pegar só o primeiro, pega a lista completa para a IA decidir o que fazer.
         available_products = Product.query.filter_by(is_active=True).all()
         if not available_products:
             logger.warning("Nenhum produto ativo encontrado no banco de dados.")
             return jsonify([{"text": "Olá! No momento, estamos atualizando nosso catálogo. Volte em breve!"}]), 200
-
-        # Encontra ou cria o cliente
         customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
         if not customer:
             customer = Customer(whatsapp_number=sender_id, name="Web Chat User")
             db.session.add(customer)
-            db.session.flush() # Para obter o ID do cliente antes do commit
-        
-        # Atualiza os dados do cliente
+            db.session.flush()
         customer.last_interaction = datetime.utcnow()
         customer.total_interactions = (customer.total_interactions or 0) + 1
-        
-        # Obtém o histórico da conversa
-        conversation_history = Conversation.query.filter_by(
-            customer_id=customer.id
-        ).order_by(Conversation.timestamp.asc()).limit(20).all()
+        conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.asc()).limit(20).all()
         conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
-        
-        # Analisa a intenção do cliente (pode ser aprimorado no futuro)
         customer_analysis = ai_agent.analyze_customer_intent(message_content, conversation_dict)
-        
-        # --- CHAMADA ATUALIZADA: PASSA A LISTA DE PRODUTOS PARA A IA ---
-        ai_response = ai_agent.generate_response(
-            message_content, customer_analysis, conversation_dict, available_products=available_products
-        )
-        
-        # Salva a conversa no banco de dados
+        ai_response = ai_agent.generate_response(message_content, customer_analysis, conversation_dict, available_products=available_products)
         incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
-        outgoing_conversation = Conversation(customer_id=customer.id, message_type='outgoing', message_content=ai_response) # Opcional: salvar a estratégia usada
+        outgoing_conversation = Conversation(customer_id=customer.id, message_type='outgoing', message_content=ai_response)
         db.session.add_all([incoming_conversation, outgoing_conversation])
         db.session.commit()
-        
         logger.info(f"Mensagem de {sender_id} processada com sucesso.")
         return jsonify([{"recipient_id": sender_id, "text": ai_response}]), 200
-            
     except Exception as e:
         logger.error(f"Erro ao processar mensagem do chat web para {sender_id}: {e}")
         db.session.rollback()
         return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
 
-#
-# O restante do arquivo (rotas do painel de admin) não precisa de alterações.
-#
 @app.route('/simulate_sale', methods=['POST'])
 def simulate_sale():
+    # Esta função permanece a mesma
     try:
         if learner is None: init_handlers()
         data = request.get_json()
@@ -166,43 +137,121 @@ def api_learning_stats():
     stats = learner.get_learning_statistics()
     return jsonify(stats)
 
+# --- ROTA DE PRODUTOS CORRIGIDA ---
 @app.route('/products')
 def products():
-    products = Product.query.filter_by(is_active=True).order_by(Product.created_at.desc()).all()
-    return render_template('products.html', products=products)
+    """
+    Mostra TODOS os produtos, incluindo os inativos, para permitir o gerenciamento.
+    """
+    try:
+        all_products = Product.query.order_by(Product.created_at.desc()).all()
+        return render_template('products.html', products=all_products)
+    except Exception as e:
+        logger.error(f"Error loading products page: {e}")
+        return render_template('products.html', error=str(e), products=[])
 
 @app.route('/products/new', methods=['GET', 'POST'])
 def new_product():
+    # A rota de criação permanece a mesma, pois o 'is_active' já tem um default=True no model.
     if request.method == 'POST':
         try:
-            # ... (código de criação do produto)
-            flash('Produto criado com sucesso!', 'success')
+            name = request.form.get('name')
+            niche = request.form.get('niche')
+            original_price_str = request.form.get('original_price')
+            original_price = float(original_price_str) if original_price_str else None
+            price = float(request.form.get('price', 0))
+            description = request.form.get('description')
+            target_audience = request.form.get('target_audience')
+            sales_approach = request.form.get('sales_approach', 'consultivo')
+            benefits_text = request.form.get('key_benefits', '')
+            benefits_list = [benefit.strip() for benefit in benefits_text.split('\n') if benefit.strip()]
+            key_benefits = json.dumps(benefits_list)
+            payment_link = request.form.get('payment_link')
+            product_image_url = request.form.get('product_image_url')
+            free_group_link = request.form.get('free_group_link')
+            
+            product = Product(
+                name=name, niche=niche, original_price=original_price, price=price,
+                description=description, target_audience=target_audience, key_benefits=key_benefits,
+                sales_approach=sales_approach, payment_link=payment_link,
+                product_image_url=product_image_url, free_group_link=free_group_link
+            )
+            db.session.add(product)
+            db.session.commit()
+            flash(f'Produto "{name}" criado com sucesso!', 'success')
             return redirect(url_for('products'))
         except Exception as e:
             flash(f'Erro ao criar produto: {e}', 'error')
             db.session.rollback()
     return render_template('new_product.html')
 
+# --- ROTA DE EDIÇÃO CORRIGIDA ---
 @app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
 def edit_product(product_id):
+    """
+    Permite a edição de um produto e salva o status 'is_active'.
+    """
     product = Product.query.get_or_404(product_id)
     if request.method == 'POST':
         try:
-            # ... (código de edição do produto)
-            flash('Produto atualizado com sucesso!', 'success')
+            product.name = request.form.get('name')
+            product.niche = request.form.get('niche')
+            original_price_str = request.form.get('original_price')
+            product.original_price = float(original_price_str) if original_price_str else None
+            product.price = float(request.form.get('price', 0))
+            product.description = request.form.get('description')
+            product.target_audience = request.form.get('target_audience')
+            product.sales_approach = request.form.get('sales_approach', 'consultivo')
+            benefits_text = request.form.get('key_benefits', '')
+            benefits_list = [benefit.strip() for benefit in benefits_text.split('\n') if benefit.strip()]
+            product.key_benefits = json.dumps(benefits_list)
+            product.payment_link = request.form.get('payment_link')
+            product.product_image_url = request.form.get('product_image_url')
+            product.free_group_link = request.form.get('free_group_link')
+            
+            # --- LÓGICA PARA SALVAR O STATUS ATIVO/INATIVO ---
+            product.is_active = request.form.get('is_active') == 'on'
+            
+            product.updated_at = datetime.utcnow()
+            db.session.commit()
+            flash(f'Produto "{product.name}" atualizado com sucesso!', 'success')
             return redirect(url_for('products'))
         except Exception as e:
             flash(f'Erro ao atualizar produto: {e}', 'error')
             db.session.rollback()
-    # ... (código para exibir o formulário de edição)
-    return render_template('edit_product.html', product=product)
+
+    try:
+        benefits_list = json.loads(product.key_benefits)
+        benefits_text = '\n'.join(benefits_list)
+    except:
+        benefits_text = product.key_benefits
+    return render_template('edit_product.html', product=product, benefits_text=benefits_text)
 
 @app.route('/products/<int:product_id>/delete', methods=['POST'])
 def delete_product(product_id):
-    # ... (código de deleção do produto)
+    # Esta função permanece a mesma
+    try:
+        product = Product.query.get_or_404(product_id)
+        # Em vez de deletar, marcamos como inativo permanentemente
+        product.is_active = False
+        product.updated_at = datetime.utcnow()
+        db.session.commit()
+        flash(f'Produto "{product.name}" removido com sucesso!', 'success')
+    except Exception as e:
+        flash(f'Erro ao remover produto: {str(e)}', 'error')
     return redirect(url_for('products'))
 
 @app.route('/niches')
 def niches():
-    # ... (código da página de nichos)
-    return render_template('niches.html')
+    # Esta função permanece a mesma
+    from sqlalchemy import func
+    niche_stats = db.session.query(
+        Product.niche,
+        func.count(Product.id).label('total_products'),
+        func.count(Sale.id).label('total_sales'),
+        func.sum(Sale.sale_amount).label('total_revenue'),
+        func.avg(Sale.sale_amount).label('avg_sale_value')
+    ).outerjoin(Sale, Product.id == Sale.product_id
+    ).filter(Product.is_active == True
+    ).group_by(Product.niche).all()
+    return render_template('niches.html', niche_stats=niche_stats)
