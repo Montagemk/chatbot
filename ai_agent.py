@@ -26,7 +26,6 @@ class AIAgent:
         }
     
     def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 500) -> Optional[Dict[str, Any]]:
-        # (Esta função permanece a mesma da versão anterior, sem alterações)
         if not self.api_key:
             logger.error("A chave da API OpenRouter não está configurada. Defina a variável de ambiente OPENROUTER_API_KEY.")
             return None
@@ -55,34 +54,35 @@ class AIAgent:
 
     def generate_response(self, customer_message: str, customer_analysis: Dict, 
                          conversation_history: List[Dict], strategy: str = "adaptive", 
-                         product: Optional[Product] = None) -> str: # NOVO: Parâmetro product
+                         product: Optional[Product] = None) -> str:
         """
-        Gera uma resposta persuasiva usando o contexto do produto fornecido.
+        Gera uma resposta persuasiva usando o contexto completo e atualizado do produto.
         """
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         
-        # --- LÓGICA DE CONTEXTO DO PRODUTO ATUALIZADA ---
+        # --- LÓGICA DE CONTEXTO DO PRODUTO ATUALIZADA COM TODOS OS NOVOS CAMPOS ---
         if product:
-            # decodifica o JSON de benefícios, se necessário
             try:
                 benefits_list = json.loads(product.key_benefits)
                 benefits_str = ', '.join(benefits_list)
             except (json.JSONDecodeError, TypeError):
-                benefits_str = str(product.key_benefits) # Fallback caso não seja JSON
+                benefits_str = str(product.key_benefits)
 
             product_info = {
                 "name": product.name,
                 "price": product.price,
+                "original_price": product.original_price,
                 "description": product.description,
-                "benefits": benefits_str
+                "benefits": benefits_str,
+                "payment_link": product.payment_link,
+                "image_url": product.product_image_url,
+                "free_group_link": product.free_group_link
             }
         else:
-            # Fallback para informações padrão se nenhum produto for passado
             product_info = {
-                "name": "nosso produto digital",
-                "price": 0,
-                "description": "uma solução completa para suas necessidades.",
-                "benefits": "suporte, acesso a comunidade e muito mais."
+                "name": "nosso produto digital", "price": 0, "original_price": None,
+                "description": "uma solução completa para suas necessidades.", "benefits": "suporte e mais.",
+                "payment_link": None, "image_url": None, "free_group_link": None
             }
 
         try:
@@ -94,6 +94,7 @@ class AIAgent:
             context = self._build_conversation_context(conversation_history, limit=5)
             system_prompt = self._create_system_prompt(strategy)
             
+            # --- PROMPT DO USUÁRIO ATUALIZADO PARA INCLUIR TODAS AS NOVAS INFORMAÇÕES ---
             user_prompt = f"""
             ANÁLISE DO CLIENTE:
             - Intenção: {customer_analysis.get('intent', 'desconhecida')}
@@ -104,33 +105,39 @@ class AIAgent:
             MENSAGEM ATUAL DO CLIENTE:
             {customer_message}
             
-            INFORMAÇÕES DO PRODUTO PARA VENDER:
+            INFORMAÇÕES COMPLETAS DO PRODUTO PARA VENDER:
             - Nome: {product_info['name']}
-            - Preço: R$ {product_info['price']:.2f}
+            - Preço "De": R$ {product_info['original_price']:.2f} (se aplicável, use para mostrar desconto)
+            - Preço "Por": R$ {product_info['price']:.2f} (este é o preço final de venda)
             - Descrição: {product_info['description']}
-            - Benefícios: {product_info['benefits']}
-            
-            Gere uma resposta persuasiva, natural e culturalmente adequada para brasileiros.
+            - Benefícios Chave: {product_info['benefits']}
+            - Link de Pagamento: {product_info['payment_link']}
+            - Link para Imagem do Produto: {product_info['image_url']}
+            - Link para Grupo Gratuito: {product_info['free_group_link']}
+
+            INSTRUÇÕES PARA A IA:
+            1.  Seja um vendedor brasileiro amigável e persuasivo.
+            2.  Use o preço "De" e "Por" para criar um senso de oportunidade e desconto.
+            3.  Ofereça o "Link de Pagamento" APENAS quando o cliente demonstrar clara intenção de compra (ex: "quero comprar", "como pago?").
+            4.  Use o "Link do Grupo Gratuito" como um bônus ou para nutrir um cliente que ainda está indeciso.
+            5.  Mencione a "Imagem do Produto" se o cliente pedir para ver uma foto, mas não envie o link diretamente, diga que pode enviar ou descreva a imagem.
+            6.  Gere uma resposta natural e relevante para a mensagem do cliente.
             """
             
             response_json = self._make_api_call([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
-            ], temperature=0.7, max_tokens=300)
+            ], temperature=0.7, max_tokens=400) # Aumentado para respostas mais completas
             
-            # --- LÓGICA DE EXTRAÇÃO DE RESPOSTA CORRIGIDA ---
             if response_json and 'choices' in response_json and response_json['choices']:
                 message_data = response_json['choices'][0].get('message', {})
                 content = message_data.get('content', '').strip()
                 
-                # Se o 'content' estiver vazio, tenta extrair do 'reasoning'
                 if not content and 'reasoning' in message_data:
                     reasoning_text = message_data.get('reasoning', '')
-                    # A resposta parece estar após o último "So we can say:" ou similar
-                    possible_starts = ["So we can say:", "So, I'll respond with:", "Então podemos dizer:"]
+                    possible_starts = ["So we can say:", "So, I'll respond with:", "Então podemos dizer:", "A resposta ideal seria:"]
                     for start in possible_starts:
                         if start in reasoning_text:
-                            # Pega o texto após o marcador e limpa
                             content = reasoning_text.split(start, 1)[-1].strip().replace('\\n', '\n').strip('"')
                             break
 
@@ -145,9 +152,6 @@ class AIAgent:
         except Exception as e:
             logger.error(f"Ocorreu um erro inesperado em generate_response: {e}")
             return default_error_message
-
-    # O resto do arquivo (funções _build_conversation_context, _create_system_prompt, etc.) permanece o mesmo
-    # ... (cole o restante do seu arquivo ai_agent.py aqui)
 
     def _build_conversation_context(self, conversation_history: List[Dict], limit: int = 10) -> str:
         if not conversation_history:
@@ -167,7 +171,7 @@ class AIAgent:
         OBJETIVO: Vender o produto, construir relacionamento e superar objeções.
         """
         strategy_prompts = {
-            "consultivo": "ESTRATÉGIA CONSULTIVA: Faça perguntas, posicione-se como consultor e mostre como o produto resolve problemas específicos.",
+            "consultivo": "ESTRATÉGIA CONSULTIVA: Faça perguntas para entender as necessidades do cliente, posicione-se como consultor e mostre como o produto resolve problemas específicos.",
             "escassez": "ESTRATÉGIA DE ESCASSEZ: Crie senso de urgência respeitoso, mencione vagas ou promoções limitadas e use prova social.",
             "emocional": "ESTRATÉGIA EMOCIONAL: Conecte-se com os sonhos do cliente, use storytelling e destaque a transformação que o produto proporciona.",
             "racional": "ESTRATÉGIA RACIONAL: Apresente dados, compare custo-benefício e use argumentos lógicos e bem estruturados."
@@ -176,5 +180,5 @@ class AIAgent:
         return base_prompt + "\n" + strategy_prompt + "\nIMPORTANTE: Mantenha mensagens concisas e sempre termine com uma pergunta ou call-to-action."
 
     def analyze_customer_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
-        # Esta função pode ser simplificada por enquanto, já que o foco é a resposta
+        # Esta função pode ser aprimorada no futuro para análises mais complexas
         return {"intent": "interesse_inicial"}
