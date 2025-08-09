@@ -13,10 +13,12 @@ class AIAgent:
         self.api_key = os.environ.get("OPENROUTER_API_KEY", "demo_key")
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
         self.model = "meta-llama/llama-3.1-8b-instruct:free"  # Free model on OpenRouter
+        
+        # O HTTP-Referer deve ser o endereço do seu servidor no Render
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://whatsapp-ai-sales-agent.replit.app",
+            "HTTP-Referer": os.environ.get("RENDER_EXTERNAL_URL", "https://atpchatbot.onrender.com"),
             "X-Title": "WhatsApp AI Sales Agent"
         }
         
@@ -158,12 +160,16 @@ class AIAgent:
                 {"role": "user", "content": user_prompt}
             ], temperature=0.7, max_tokens=300)
             
-            if response and 'choices' in response:
+            if response and 'choices' in response and response['choices'][0]['message']['content']:
                 content = response['choices'][0]['message']['content']
                 if content:
                     ai_response = content.strip()
                     logger.info(f"Generated AI response using strategy: {strategy}")
                     return ai_response
+            
+            # Se a resposta for vazia ou inválida, retorna uma mensagem de erro
+            logger.error("OpenRouter API returned an invalid or empty response.")
+            return "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
             
         except Exception as e:
             logger.error(f"Error generating AI response: {e}")
@@ -291,3 +297,4 @@ class AIAgent:
                 "purchase_signals": [],
                 "next_action": "continue_conversation"
             }
+}
