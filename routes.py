@@ -7,6 +7,7 @@ from reinforcement_learning import ReinforcementLearner
 from datetime import datetime, timedelta
 import json
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,8 @@ learner = None
 def init_handlers():
     """Initialize handlers within application context"""
     global whatsapp, ai_agent, learner
-    whatsapp = WhatsAppHandler()
+    # O WhatsAppHandler não é mais necessário para a integração no site
+    # whatsapp = WhatsAppHandler()
     ai_agent = AIAgent()
     learner = ReinforcementLearner()
 
@@ -123,74 +125,46 @@ def analytics():
         return render_template('analytics.html', error=str(e))
 
 @app.route('/webhook', methods=['GET', 'POST'])
-def whatsapp_webhook():
-    """Handle WhatsApp webhook verification and incoming messages"""
+def web_chat_webhook(): # Renomeado para evitar conflito com a lógica original
+    """Handle incoming messages from the web chat interface"""
     
     if request.method == 'GET':
-        # Webhook verification
-        mode = request.args.get('hub.mode', '')
-        token = request.args.get('hub.verify_token', '')
-        challenge = request.args.get('hub.challenge', '')
-        
-        verification_result = whatsapp.verify_webhook(mode, token, challenge)
-        if verification_result:
-            return verification_result
-        else:
-            return 'Verification failed', 403
+        # Webhook verification, retornando 200 OK para o browser
+        return 'OK', 200
     
     elif request.method == 'POST':
-        # Handle incoming messages
         try:
             webhook_data = request.get_json()
+            message_content = webhook_data.get('message', '')
+            sender_id = webhook_data.get('sender', 'web_user')
             
-            # Store webhook data for debugging
-            webhook_record = WhatsAppWebhook(
-                webhook_data=json.dumps(webhook_data),
-                processed=False
-            )
-            db.session.add(webhook_record)
-            db.session.commit()
+            if not message_content:
+                return jsonify([{"text": "Mensagem vazia."}]), 400
+
+            # Processa a mensagem e obtém a resposta da IA diretamente
+            ai_response = process_incoming_message_for_web(sender_id, message_content)
             
-            # Parse message data
-            message_data = whatsapp.parse_webhook_data(webhook_data)
-            if not message_data:
-                webhook_record.processed = True
-                webhook_record.error_message = "No valid message data found"
-                db.session.commit()
-                return 'OK', 200
-            
-            # Process the message
-            success = process_incoming_message(message_data)
-            
-            webhook_record.processed = True
-            if not success:
-                webhook_record.error_message = "Failed to process message"
-            
-            db.session.commit()
-            
-            return 'OK', 200
+            # Retorna a resposta da IA no formato esperado pelo JavaScript
+            return jsonify([{"recipient_id": sender_id, "text": ai_response}]), 200
             
         except Exception as e:
-            logger.error(f"Error processing webhook: {e}")
-            return 'Error', 500
+            logger.error(f"Error processing webhook from web chat: {e}")
+            return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
 
-def process_incoming_message(message_data):
-    """Process incoming WhatsApp message and generate AI response"""
+def process_incoming_message_for_web(sender_id, message_content):
+    """Generate AI response for web chat messages"""
     try:
-        phone_number = message_data['from']
-        message_content = message_data['text']
-        message_id = message_data['message_id']
-        profile_name = message_data.get('profile_name', '')
-        
-        # Mark message as read
-        whatsapp.mark_as_read(message_id)
+        # Garante que os handlers foram inicializados
+        global ai_agent, learner
+        if ai_agent is None or learner is None:
+            init_handlers()
         
         # Get or create customer
-        customer = Customer.query.filter_by(whatsapp_number=phone_number).first()
+        customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
         if not customer:
             customer = Customer(
-                whatsapp_number=phone_number,
-                name=profile_name,
+                whatsapp_number=sender_id,
+                name="Web Chat User",
                 first_contact=datetime.utcnow(),
                 last_interaction=datetime.utcnow(),
                 total_interactions=0
@@ -202,16 +176,6 @@ def process_incoming_message(message_data):
         
         customer.total_interactions += 1
         
-        # Save incoming message
-        incoming_conversation = Conversation(
-            customer_id=customer.id,
-            message_type='incoming',
-            message_content=message_content,
-            timestamp=datetime.utcnow()
-        )
-        db.session.add(incoming_conversation)
-        db.session.flush()
-        
         # Get conversation history
         conversation_history = Conversation.query.filter_by(
             customer_id=customer.id
@@ -221,36 +185,22 @@ def process_incoming_message(message_data):
         for conv in conversation_history:
             conversation_dict.append({
                 'message_type': conv.message_type,
-                'message_content': conv.message_content,
-                'timestamp': conv.timestamp.isoformat(),
-                'ai_strategy': conv.ai_strategy
+                'message_content': conv.message_content
             })
         
-        # Analyze customer intent and sentiment
-        customer_analysis = ai_agent.analyze_customer_intent(message_content, conversation_dict)
-        
-        # Update sentiment in the conversation record
-        incoming_conversation.sentiment_score = customer_analysis.get('sentiment', 0.0)
-        
-        # Check if customer is ready to buy
-        purchase_intent = ai_agent.detect_purchase_intent(message_content, conversation_dict)
-        
         # Generate AI response
-        ai_strategy = learner.get_best_strategy(customer_analysis)
+        ai_strategy = learner.get_best_strategy({}) # Pass a default analysis for web chat
         ai_response = ai_agent.generate_response(
-            message_content, customer_analysis, conversation_dict, ai_strategy
+            message_content, {}, conversation_dict, ai_strategy
         )
         
-        # Handle purchase intent
-        if purchase_intent.get('ready_to_buy', False) and purchase_intent.get('confidence', 0) > 0.7:
-            # Add payment information to response
-            payment_link = f"Para finalizar sua compra, acesse: https://exemplo.com/checkout/{customer.id}"
-            ai_response += f"\n\n💳 {payment_link}"
-            
-            # This would typically integrate with a payment processor
-            # For now, we'll simulate sale detection with a webhook or manual confirmation
-        
-        # Save AI response
+        # Save both messages (user and AI)
+        incoming_conversation = Conversation(
+            customer_id=customer.id,
+            message_type='incoming',
+            message_content=message_content,
+            timestamp=datetime.utcnow()
+        )
         outgoing_conversation = Conversation(
             customer_id=customer.id,
             message_type='outgoing',
@@ -258,28 +208,25 @@ def process_incoming_message(message_data):
             timestamp=datetime.utcnow(),
             ai_strategy=ai_strategy
         )
+        db.session.add(incoming_conversation)
         db.session.add(outgoing_conversation)
         
-        # Send response via WhatsApp
-        success = whatsapp.send_message(phone_number, ai_response)
-        
-        if success:
-            db.session.commit()
-            logger.info(f"Successfully processed message from {phone_number}")
-            return True
-        else:
-            db.session.rollback()
-            logger.error(f"Failed to send WhatsApp message to {phone_number}")
-            return False
+        db.session.commit()
+        logger.info(f"Successfully processed web chat message from {sender_id}")
+        return ai_response
             
     except Exception as e:
-        logger.error(f"Error processing incoming message: {e}")
+        logger.error(f"Error processing web chat message from {sender_id}: {e}")
         db.session.rollback()
-        return False
+        # Retorna uma mensagem de erro genérica para o frontend
+        return "Desculpe, ocorreu um erro no servidor. Tente novamente."
+
+
+# As rotas a seguir são mantidas inalteradas
 
 @app.route('/simulate_sale', methods=['POST'])
 def simulate_sale():
-    """Simulate a sale for testing reinforcement learning"""
+    # ... (código existente) ...
     try:
         data = request.get_json()
         customer_id = data.get('customer_id')
@@ -327,7 +274,7 @@ def simulate_sale():
 
 @app.route('/api/learning_stats')
 def api_learning_stats():
-    """API endpoint for learning statistics"""
+    # ... (código existente) ...
     try:
         stats = learner.get_learning_statistics()
         return jsonify(stats)
@@ -337,7 +284,7 @@ def api_learning_stats():
 
 @app.route('/products')
 def products():
-    """Product management page"""
+    # ... (código existente) ...
     try:
         products = Product.query.filter_by(is_active=True).order_by(Product.created_at.desc()).all()
         return render_template('products.html', products=products)
@@ -347,7 +294,7 @@ def products():
 
 @app.route('/products/new', methods=['GET', 'POST'])
 def new_product():
-    """Create new product"""
+    # ... (código existente) ...
     if request.method == 'POST':
         try:
             import json
@@ -391,7 +338,7 @@ def new_product():
 
 @app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
 def edit_product(product_id):
-    """Edit existing product"""
+    # ... (código existente) ...
     product = Product.query.get_or_404(product_id)
     
     if request.method == 'POST':
@@ -435,7 +382,7 @@ def edit_product(product_id):
 
 @app.route('/products/<int:product_id>/delete', methods=['POST'])
 def delete_product(product_id):
-    """Delete product (mark as inactive)"""
+    # ... (código existente) ...
     try:
         product = Product.query.get_or_404(product_id)
         product.is_active = False
@@ -453,7 +400,7 @@ def delete_product(product_id):
 
 @app.route('/niches')
 def niches():
-    """View all product niches and their performance"""
+    # ... (código existente) ...
     try:
         # Get niche statistics
         from sqlalchemy import func
