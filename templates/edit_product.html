@@ -46,7 +46,6 @@
                 <div class="col-md-6 mb-3">
                     <label for="original_price" class="form-label">Preço "De" (R$)</label>
                     <input type="number" class="form-control" id="original_price" name="original_price" value="{{ product.original_price or '' }}" step="0.01" min="0" placeholder="Valor original (opcional)">
-                    <div class="form-text">Opcional. Use para mostrar um desconto.</div>
                 </div>
                 <div class="col-md-6 mb-3">
                     <label for="price" class="form-label">Preço "Por" (R$) *</label>
@@ -57,10 +56,10 @@
             <div class="mb-3">
                 <label for="sales_approach" class="form-label">Estratégia de Vendas *</label>
                 <select class="form-select" id="sales_approach" name="sales_approach" required>
-                    <option value="consultivo" {% if product.sales_approach == 'consultivo' %}selected{% endif %}>Consultivo - Educação e Consultoria</option>
-                    <option value="escassez" {% if product.sales_approach == 'escassez' %}selected{% endif %}>Escassez - Urgência e Exclusividade</option>
-                    <option value="emocional" {% if product.sales_approach == 'emocional' %}selected{% endif %}>Emocional - Histórias e Transformação</option>
-                    <option value="racional" {% if product.sales_approach == 'racional' %}selected{% endif %}>Racional - Dados e Resultados</option>
+                    <option value="consultivo" {% if product.sales_approach == 'consultivo' %}selected{% endif %}>Consultivo</option>
+                    <option value="escassez" {% if product.sales_approach == 'escassez' %}selected{% endif %}>Escassez</option>
+                    <option value="emocional" {% if product.sales_approach == 'emocional' %}selected{% endif %}>Emocional</option>
+                    <option value="racional" {% if product.sales_approach == 'racional' %}selected{% endif %}>Racional</option>
                 </select>
             </div>
             
@@ -75,7 +74,6 @@
             <div class="mb-3">
                 <label for="key_benefits" class="form-label">Principais Benefícios *</label>
                 <textarea class="form-control" id="key_benefits" name="key_benefits" rows="6" required placeholder="Digite um benefício por linha...">{{ benefits_text }}</textarea>
-                <div class="form-text">Liste os principais benefícios, um por linha.</div>
             </div>
             
             <hr class="my-4">
@@ -88,11 +86,21 @@
             </div>
             <div class="mb-3">
                 <label for="product_image_url" class="form-label">Foto do Produto (URL)</label>
-                <input type="url" class="form-control" id="product_image_url" name="product_image_url" value="{{ product.product_image_url or '' }}" placeholder="https://site.com/imagem-do-produto.png">
+                <input type="url" class="form-control" id="product_image_url" name="product_image_url" value="{{ product.product_image_url or '' }}" placeholder="https://site.com/imagem.png">
             </div>
             <div class="mb-3">
                 <label for="free_group_link" class="form-label">Link do Grupo de Aulas Gratuitas</label>
-                <input type="url" class="form-control" id="free_group_link" name="free_group_link" value="{{ product.free_group_link or '' }}" placeholder="https://chat.whatsapp.com/seu-grupo-gratuito">
+                <input type="url" class="form-control" id="free_group_link" name="free_group_link" value="{{ product.free_group_link or '' }}" placeholder="https://chat.whatsapp.com/seu-grupo">
+            </div>
+            
+            <hr class="my-4">
+            
+            <h5 class="mb-3"><i class="fas fa-toggle-on"></i> Status do Produto</h5>
+            
+            <div class="form-check form-switch mb-4">
+              <input class="form-check-input" type="checkbox" role="switch" id="is_active" name="is_active" {% if product.is_active %}checked{% endif %}>
+              <label class="form-check-label" for="is_active">Produto Ativo</label>
+              <div class="form-text">Marque esta caixa para que o produto apareça nas opções do chatbot.</div>
             </div>
 
             <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
