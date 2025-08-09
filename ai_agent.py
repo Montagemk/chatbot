@@ -15,7 +15,7 @@ class AIAgent:
         """
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.model = "deepseek/deepseek-chat-v3-0324:free"
+        self.model = "deepseek/deepseek-r1:free"
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
