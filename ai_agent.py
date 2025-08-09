@@ -297,4 +297,4 @@ class AIAgent:
                 "purchase_signals": [],
                 "next_action": "continue_conversation"
             }
-}
+
