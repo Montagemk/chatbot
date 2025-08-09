@@ -81,8 +81,6 @@ def process_incoming_message_for_web(sender_id, message_content):
         if ai_agent is None or learner is None:
             init_handlers()
         
-        # --- INÍCIO DA MODIFICAÇÃO ---
-        # Busca o primeiro produto ativo no banco de dados para usar como contexto.
         product_context = Product.query.filter_by(is_active=True).first()
         if not product_context:
             logger.warning("Nenhum produto ativo encontrado no banco. A IA pode usar informações genéricas.")
@@ -94,7 +92,7 @@ def process_incoming_message_for_web(sender_id, message_content):
                 name="Web Chat User"
             )
             db.session.add(customer)
-            db.session.flush() # Usa flush para obter o ID do cliente antes do commit
+            db.session.flush()
         
         customer.last_interaction = datetime.utcnow()
         customer.total_interactions = (customer.total_interactions or 0) + 1
@@ -105,27 +103,22 @@ def process_incoming_message_for_web(sender_id, message_content):
         
         conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
         
-        # A análise de intenção e estratégia continuam as mesmas
         customer_analysis = ai_agent.analyze_customer_intent(message_content, conversation_dict)
         ai_strategy = learner.get_best_strategy(customer_analysis)
         
-        # A chamada para generate_response agora inclui o produto
         ai_response = ai_agent.generate_response(
             message_content, customer_analysis, conversation_dict, ai_strategy, product=product_context
         )
         
-        # Salva as mensagens na conversa
         incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
         outgoing_conversation = Conversation(customer_id=customer.id, message_type='outgoing', message_content=ai_response, ai_strategy=ai_strategy)
         db.session.add_all([incoming_conversation, outgoing_conversation])
         
         db.session.commit()
         
-        # Log atualizado para incluir o contexto do produto
         product_name_log = product_context.name if product_context else 'Nenhum'
         logger.info(f"Mensagem de {sender_id} processada com sucesso usando o produto: {product_name_log}")
         return ai_response
-        # --- FIM DA MODIFICAÇÃO ---
             
     except Exception as e:
         logger.error(f"Erro ao processar mensagem do chat web para {sender_id}: {e}")
@@ -148,8 +141,6 @@ def simulate_sale():
         if not customer:
             return jsonify({"error": "Cliente não encontrado"}), 404
         
-        # --- MODIFICAÇÃO NA SIMULAÇÃO DE VENDA ---
-        # Usa o primeiro produto ativo para a simulação, para consistência
         product = Product.query.filter_by(is_active=True).first()
         if not product:
             return jsonify({"error": "Nenhum produto ativo encontrado para simular a venda"}), 404
@@ -163,9 +154,9 @@ def simulate_sale():
         
         sale = Sale(
             customer_id=customer_id,
-            product_id=product.id,  # Vincula o ID do produto
-            product_name=product.name, # Usa o nome do produto do banco
-            sale_amount=product.price, # Usa o preço do produto do banco
+            product_id=product.id,
+            product_name=product.name,
+            sale_amount=product.price,
             conversation_messages=customer.total_interactions
         )
         db.session.add(sale)
@@ -183,8 +174,6 @@ def simulate_sale():
         logger.error(f"Erro ao simular venda: {e}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-
-# --- NENHUMA ALTERAÇÃO NECESSÁRIA NAS ROTAS ABAIXO ---
 
 @app.route('/conversations')
 def conversations():
@@ -256,12 +245,15 @@ def products():
         logger.error(f"Error loading products: {e}")
         return render_template('products.html', error=str(e))
 
+# --- ROTA DE NOVO PRODUTO ATUALIZADA ---
 @app.route('/products/new', methods=['GET', 'POST'])
 def new_product():
     if request.method == 'POST':
         try:
             name = request.form.get('name')
             niche = request.form.get('niche')
+            original_price_str = request.form.get('original_price')
+            original_price = float(original_price_str) if original_price_str else None
             price = float(request.form.get('price', 0))
             description = request.form.get('description')
             target_audience = request.form.get('target_audience')
@@ -269,11 +261,22 @@ def new_product():
             benefits_text = request.form.get('key_benefits', '')
             benefits_list = [benefit.strip() for benefit in benefits_text.split('\n') if benefit.strip()]
             key_benefits = json.dumps(benefits_list)
+            payment_link = request.form.get('payment_link')
+            product_image_url = request.form.get('product_image_url')
+            free_group_link = request.form.get('free_group_link')
             
             product = Product(
-                name=name, niche=niche, price=price, description=description,
-                target_audience=target_audience, key_benefits=key_benefits,
-                sales_approach=sales_approach
+                name=name,
+                niche=niche,
+                original_price=original_price,
+                price=price,
+                description=description,
+                target_audience=target_audience,
+                key_benefits=key_benefits,
+                sales_approach=sales_approach,
+                payment_link=payment_link,
+                product_image_url=product_image_url,
+                free_group_link=free_group_link
             )
             db.session.add(product)
             db.session.commit()
@@ -285,6 +288,7 @@ def new_product():
             db.session.rollback()
     return render_template('new_product.html')
 
+# --- ROTA DE EDITAR PRODUTO ATUALIZADA ---
 @app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
 def edit_product(product_id):
     product = Product.query.get_or_404(product_id)
@@ -292,6 +296,8 @@ def edit_product(product_id):
         try:
             product.name = request.form.get('name')
             product.niche = request.form.get('niche')
+            original_price_str = request.form.get('original_price')
+            product.original_price = float(original_price_str) if original_price_str else None
             product.price = float(request.form.get('price', 0))
             product.description = request.form.get('description')
             product.target_audience = request.form.get('target_audience')
@@ -299,7 +305,11 @@ def edit_product(product_id):
             benefits_text = request.form.get('key_benefits', '')
             benefits_list = [benefit.strip() for benefit in benefits_text.split('\n') if benefit.strip()]
             product.key_benefits = json.dumps(benefits_list)
+            product.payment_link = request.form.get('payment_link')
+            product.product_image_url = request.form.get('product_image_url')
+            product.free_group_link = request.form.get('free_group_link')
             product.updated_at = datetime.utcnow()
+            
             db.session.commit()
             flash(f'Produto "{product.name}" atualizado com sucesso!', 'success')
             return redirect(url_for('products'))
