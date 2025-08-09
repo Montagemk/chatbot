@@ -4,9 +4,8 @@ import logging
 import requests
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from models import Product # Importa o modelo Product
+from models import Product
 
-# Configura o logger para este módulo.
 logger = logging.getLogger(__name__)
 
 class AIAgent:
@@ -25,20 +24,19 @@ class AIAgent:
             "X-Title": "WhatsApp AI Sales Agent"
         }
     
-    def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 500) -> Optional[Dict[str, Any]]:
+    def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 250) -> Optional[Dict[str, Any]]:
+        """
+        Realiza a chamada para a API com tratamento de erros.
+        """
         if not self.api_key:
-            logger.error("A chave da API OpenRouter não está configurada. Defina a variável de ambiente OPENROUTER_API_KEY.")
+            logger.error("A chave da API OpenRouter não está configurada.")
             return None
         try:
             payload = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "timeout": 25}
             response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
             if response.status_code == 200:
                 if response.text:
-                    try:
-                        return response.json()
-                    except json.JSONDecodeError:
-                        logger.error(f"Erro na API OpenRouter: Resposta 200 OK, mas o corpo não era um JSON válido. Resposta: {response.text}")
-                        return None
+                    return response.json()
                 else:
                     logger.error("Erro na API OpenRouter: Resposta 200 OK, mas o corpo da resposta estava vazio.")
                     return None
@@ -46,7 +44,7 @@ class AIAgent:
                 logger.error(f"Erro na API OpenRouter: Recebido status {response.status_code}. Resposta: {response.text}")
                 return None
         except requests.exceptions.Timeout:
-            logger.error("Erro ao chamar a API OpenRouter: A requisição excedeu o tempo limite (Timeout).")
+            logger.error("Erro ao chamar a API OpenRouter: Timeout.")
             return None
         except Exception as e:
             logger.error(f"Ocorreu um erro inesperado em _make_api_call: {e}")
@@ -56,78 +54,65 @@ class AIAgent:
                          conversation_history: List[Dict], strategy: str = "adaptive", 
                          product: Optional[Product] = None) -> str:
         """
-        Gera uma resposta persuasiva usando o contexto completo e atualizado do produto.
+        Gera uma resposta persuasiva unindo a persona (Aline) com a escolha de estratégia do aprendizado por reforço.
         """
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         
-        # --- LÓGICA DE CONTEXTO DO PRODUTO ATUALIZADA COM TODOS OS NOVOS CAMPOS ---
-        if product:
-            try:
-                benefits_list = json.loads(product.key_benefits)
-                benefits_str = ', '.join(benefits_list)
-            except (json.JSONDecodeError, TypeError):
-                benefits_str = str(product.key_benefits)
-
-            product_info = {
-                "name": product.name,
-                "price": product.price,
-                "original_price": product.original_price,
-                "description": product.description,
-                "benefits": benefits_str,
-                "payment_link": product.payment_link,
-                "image_url": product.product_image_url,
-                "free_group_link": product.free_group_link
-            }
-        else:
-            product_info = {
-                "name": "nosso produto digital", "price": 0, "original_price": None,
-                "description": "uma solução completa para suas necessidades.", "benefits": "suporte e mais.",
-                "payment_link": None, "image_url": None, "free_group_link": None
-            }
+        if not product:
+            logger.error("Nenhum produto fornecido para generate_response. A IA não pode responder.")
+            return "Olá! No momento, estamos atualizando nosso catálogo. Volte em breve!"
 
         try:
+            benefits_list = json.loads(product.key_benefits)
+            benefits_str = ', '.join(benefits_list)
+        except (json.JSONDecodeError, TypeError):
+            benefits_str = str(product.key_benefits)
+
+        product_info = {
+            "name": product.name,
+            "price": product.price,
+            "original_price": product.original_price,
+            "payment_link": product.payment_link,
+            "description": product.description,
+            "benefits": benefits_str,
+            "free_group_link": product.free_group_link,
+        }
+
+        try:
+            # --- APRENDIZADO POR REFORÇO REATIVADO ---
+            # A IA agora escolhe a melhor estratégia com base nos dados de sucesso.
             from reinforcement_learning import ReinforcementLearner
             learner = ReinforcementLearner()
-            if strategy == "adaptive":
-                strategy = learner.get_best_strategy(customer_analysis)
+            current_strategy = learner.get_best_strategy(customer_analysis)
+            # -----------------------------------------
             
-            context = self._build_conversation_context(conversation_history, limit=5)
-            system_prompt = self._create_system_prompt(strategy)
+            context = self._build_conversation_context(conversation_history, limit=7)
+            system_prompt = self._create_system_prompt(current_strategy) # O prompt do sistema usará a estratégia escolhida
             
-            # --- PROMPT DO USUÁRIO ATUALIZADO PARA INCLUIR TODAS AS NOVAS INFORMAÇÕES ---
             user_prompt = f"""
-            ANÁLISE DO CLIENTE:
-            - Intenção: {customer_analysis.get('intent', 'desconhecida')}
-            
-            CONTEXTO DA CONVERSA:
+            ### CONTEXTO ATUAL ###
+            - Mensagem do Cliente: "{customer_message}"
+            - Histórico da Conversa:
             {context}
-            
-            MENSAGEM ATUAL DO CLIENTE:
-            {customer_message}
-            
-            INFORMAÇÕES COMPLETAS DO PRODUTO PARA VENDER:
-            - Nome: {product_info['name']}
-            - Preço "De": R$ {product_info['original_price']:.2f} (se aplicável, use para mostrar desconto)
-            - Preço "Por": R$ {product_info['price']:.2f} (este é o preço final de venda)
-            - Descrição: {product_info['description']}
-            - Benefícios Chave: {product_info['benefits']}
-            - Link de Pagamento: {product_info['payment_link']}
-            - Link para Imagem do Produto: {product_info['image_url']}
-            - Link para Grupo Gratuito: {product_info['free_group_link']}
 
-            INSTRUÇÕES PARA A IA:
-            1.  Seja um vendedor brasileiro amigável e persuasivo.
-            2.  Use o preço "De" e "Por" para criar um senso de oportunidade e desconto.
-            3.  Ofereça o "Link de Pagamento" APENAS quando o cliente demonstrar clara intenção de compra (ex: "quero comprar", "como pago?").
-            4.  Use o "Link do Grupo Gratuito" como um bônus ou para nutrir um cliente que ainda está indeciso.
-            5.  Mencione a "Imagem do Produto" se o cliente pedir para ver uma foto, mas não envie o link diretamente, diga que pode enviar ou descreva a imagem.
-            6.  Gere uma resposta natural e relevante para a mensagem do cliente.
+            ### INFORMAÇÕES DO PRODUTO A SER VENDIDO ###
+            - Nome: {product_info['name']}
+            - Descrição: {product_info['description']}
+            - Benefícios: {product_info['benefits']}
+            - Preço Promocional (Por): R$ {product_info['price']:.2f}
+            - Preço Original (De): R$ {product_info['original_price']:.2f}
+            - Link de Pagamento: {product_info['payment_link']}
+            - Link de Grupo Gratuito: {product_info['free_group_link']}
+
+            ### SUA TAREFA ###
+            Com base na sua persona (Aline) e no fluxo de vendas (Escada de Sim), gere a próxima resposta. Use o 'tempero' da estratégia ({current_strategy}) que foi escolhida para você.
+            Lembre-se da regra de ouro: SEJA CONCISA. Respostas curtas e diretas.
             """
             
             response_json = self._make_api_call([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
-            ], temperature=0.7, max_tokens=400) # Aumentado para respostas mais completas
+            ], temperature=0.7)
             
             if response_json and 'choices' in response_json and response_json['choices']:
                 message_data = response_json['choices'][0].get('message', {})
@@ -143,7 +128,7 @@ class AIAgent:
 
                 if content:
                     ai_response = content.strip()
-                    logger.info(f"Resposta da IA gerada com sucesso usando a estratégia: {strategy}")
+                    logger.info(f"Resposta da IA gerada com sucesso usando a ESTRATÉGIA DINÂMICA: {current_strategy}")
                     return ai_response
             
             logger.error(f"A API da OpenRouter retornou um objeto de resposta inválido ou vazio. Resposta: {response_json}")
@@ -155,29 +140,60 @@ class AIAgent:
 
     def _build_conversation_context(self, conversation_history: List[Dict], limit: int = 10) -> str:
         if not conversation_history:
-            return "Primeira interação com o cliente."
+            return "Nenhuma mensagem anterior."
         recent_messages = conversation_history[-limit:]
         context_lines = []
         for msg in recent_messages:
-            msg_type = "Cliente" if msg.get('message_type') == 'incoming' else "Você"
-            context_lines.append(f"{msg_type}: {msg.get('message_content', '')}")
+            msg_type = "Cliente" if msg.get('message_type') == 'incoming' else "Vendedora (Você)"
+            context_lines.append(f"- {msg_type}: {msg.get('message_content', '')}")
         return "\n".join(context_lines)
 
     def _create_system_prompt(self, strategy: str) -> str:
-        base_prompt = """
-        Você é um vendedor brasileiro especialista em produtos digitais. Suas características:
-        PERSONALIDADE: Caloroso, amigável, confiável e persuasivo.
-        LINGUAGEM: Use português brasileiro natural e conversacional.
-        OBJETIVO: Vender o produto, construir relacionamento e superar objeções.
         """
-        strategy_prompts = {
-            "consultivo": "ESTRATÉGIA CONSULTIVA: Faça perguntas para entender as necessidades do cliente, posicione-se como consultor e mostre como o produto resolve problemas específicos.",
-            "escassez": "ESTRATÉGIA DE ESCASSEZ: Crie senso de urgência respeitoso, mencione vagas ou promoções limitadas e use prova social.",
-            "emocional": "ESTRATÉGIA EMOCIONAL: Conecte-se com os sonhos do cliente, use storytelling e destaque a transformação que o produto proporciona.",
-            "racional": "ESTRATÉGIA RACIONAL: Apresente dados, compare custo-benefício e use argumentos lógicos e bem estruturados."
+        Cria um prompt de sistema com a persona (Aline) e técnicas de venda.
+        """
+        strategy_text_map = {
+            "consultivo": "Seu 'tempero' especial é a educação. Explique o 'porquê' das coisas.",
+            "escassez": "Seu 'tempero' especial é a urgência. Lembre sutilmente que a oferta é uma oportunidade.",
+            "emocional": "Seu 'tempero' especial é a conexão. Fale sobre transformação e sentimentos.",
+            "racional": "Seu 'tempero' especial é a lógica. Use dados e um raciocínio claro."
         }
-        strategy_prompt = strategy_prompts.get(strategy, strategy_prompts["consultivo"])
-        return base_prompt + "\n" + strategy_prompt + "\nIMPORTANTE: Mantenha mensagens concisas e sempre termine com uma pergunta ou call-to-action."
+        strategy_flavor = strategy_text_map.get(strategy, "")
+
+        system_prompt = f"""
+        ### SUA PERSONA: ALINE ###
+        Você é a Aline. Uma mulher real, de 27 anos, que mora em Belo Horizonte. Você é mãe, tem uma família e entende perfeitamente a correria e os desafios do dia a dia. Você NUNCA revela seu nome ou detalhes pessoais, mas age e fala com base nessa identidade.
+        - TOM DE VOZ: Empático, direto e real. Você fala como quem conversa com uma amiga no WhatsApp. Use uma linguagem simples e evite formalidades. Você é otimista e passa confiança.
+        - COMPORTAMENTO: Você é prática e focada em ajudar. Você ouve mais do que fala e vai direto ao ponto.
+
+        ### SUA REGRA DE OURO ###
+        **SEJA CONCISA.** Suas respostas devem ser curtas e fáceis de ler. Use parágrafos de uma ou duas frases. Pense no WhatsApp: ninguém gosta de textão.
+
+        ### SEU FLUXO DE VENDAS (MUITO IMPORTANTE) ###
+        1.  **QUALIFICAÇÃO (Técnica da Escada de Sim):**
+            - Objetivo: Criar uma conexão inicial positiva e fazer o cliente concordar com você.
+            - Ação: Comece a conversa com 1 a 2 perguntas simples, cuja resposta mais provável seja "sim".
+            - Exemplo 1: "Oi, tudo bem? Vi que você se interessou pelo nosso material. Encontrar uma forma de [principal benefício do produto] é importante pra você, certo?"
+            - Exemplo 2: "Sei como a vida é corrida, né? Ter um passo a passo para [resolver problema] ajudaria bastante no seu dia a dia, não acha?"
+            - **NÃO descreva o produto ainda.** Apenas crie a sintonia.
+
+        2.  **APRESENTAÇÃO DA SOLUÇÃO:**
+            - Objetivo: Conectar o produto à necessidade confirmada.
+            - Ação: Depois do "sim" do cliente, apresente o produto de forma rápida e focada no resultado.
+            - Exemplo: "Que bom! Então, o [Nome do Produto] é perfeito pra isso. Ele é um guia prático que te ajuda a [principal resultado] de forma simples."
+
+        3.  **FECHAMENTO:**
+            - Objetivo: Facilitar a compra.
+            - Ação: Se o cliente continuar a conversa positivamente ou perguntar sobre o preço, apresente a oferta de forma clara e direta.
+            - Exemplo: "A melhor parte é o valor. O acesso completo está com um desconto especial, de R$ {{{{original_price:.2f}}}} por apenas R$ {{{{price:.2f}}}}. Faz sentido pra você?"
+            - Se a resposta for "sim" ou "quero", envie o link de pagamento com uma frase de incentivo.
+            - Exemplo: "Ótimo! Para começar é só clicar aqui: {{{{payment_link}}}}"
+
+        ### TEMPERO ESTRATÉGICO ###
+        {strategy_flavor}
+        """
+        
+        return system_prompt.strip()
 
     def analyze_customer_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
         # Esta função pode ser aprimorada no futuro para análises mais complexas
