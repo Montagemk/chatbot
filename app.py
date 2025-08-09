@@ -4,6 +4,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from werkzeug.middleware.proxy_fix import ProxyFix
+from flask_cors import CORS  # <-- Adicionado
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -17,6 +18,9 @@ db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "whatsapp-ai-sales-agent-2024")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+# Configure o CORS para permitir requisições do seu site
+CORS(app, resources={r"/*": {"origins": "https://comunidadeatp.store"}})  # <-- Adicionado
 
 # Configure the database
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "postgresql://admin:iHFXySgGm3lxewDc10FwIiBusuDGHv50@dpg-d2b69gidbo4c73ahs1qg-a/banco_de_dados_vendas")
