@@ -50,7 +50,7 @@ class AIAgent:
             # --- NOVO: FORNECE AS FERRAMENTAS PARA A IA ---
             # Formata a lista de produtos de forma clara para a IA entender o que ela pode vender.
             product_context = "\n".join(
-                [f"- {p.name}: {p.description}" for p in available_products]
+                [f"- {p.name}: {p.description} (Link Gratuito: {'Sim' if p.free_group_link else 'Não'})" for p in available_products]
             )
             
             system_prompt = self._create_system_prompt()
@@ -122,6 +122,9 @@ class AIAgent:
         4.  **MANTENHA O FOCO:** Sua conversa deve ser sempre sobre os produtos disponíveis. Se o cliente fizer uma pergunta fora do tópico, responda brevemente e gentilmente traga a conversa de volta para como você pode ajudá-lo com nossos cursos.
 
         5.  **GUIE, NÃO EMPURRE:** Seu papel é ser uma consultora. Apresente o valor, tire dúvidas e, quando sentir que o cliente está pronto e interessado (perguntando sobre preço, como funciona, etc.), apresente a oferta e o link de pagamento de forma natural.
+
+        6.  **USE O CONTEÚDO GRATUITO COMO ISCA:** Se um cliente parecer indeciso, com muitas dúvidas ou se o produto tiver um link de grupo gratuito disponível, ofereça-o como um "gostinho" do que ele vai encontrar. Isso quebra objeções e cria confiança.
+            - *Exemplo:* "Entendo sua dúvida. Que tal entrar no nosso grupo de aulas gratuitas pra você ver como funciona na prática? Lá você já vai ter acesso a um conteúdo incrível."
         """
         
         return system_prompt.strip()
