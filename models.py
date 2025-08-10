@@ -10,17 +10,14 @@ class Product(db.Model):
     name = db.Column(db.String(200), nullable=False)
     niche = db.Column(db.String(100), nullable=False)
     
-    # --- CAMPO DE PREÇO ATUALIZADO ---
-    # Adicionado "original_price" para o valor "De" e "price" agora representa o valor "Por"
-    original_price = db.Column(db.Float, nullable=True)  # Preço "De" (Opcional)
-    price = db.Column(db.Float, nullable=False) # Preço "Por" (Obrigatório)
+    original_price = db.Column(db.Float, nullable=True)
+    price = db.Column(db.Float, nullable=False)
 
     description = db.Column(db.Text, nullable=False)
     target_audience = db.Column(db.Text, nullable=False)
-    key_benefits = db.Column(db.Text, nullable=False)  # JSON string of benefits list
+    key_benefits = db.Column(db.Text, nullable=False)
     sales_approach = db.Column(db.String(50), nullable=False, default='consultivo')
     
-    # --- NOVOS CAMPOS ADICIONADOS ---
     payment_link = db.Column(db.String(500), nullable=True)
     product_image_url = db.Column(db.String(500), nullable=True)
     free_group_link = db.Column(db.String(500), nullable=True)
@@ -31,13 +28,18 @@ class Product(db.Model):
 
 class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    whatsapp_number = db.Column(db.String(20), unique=True, nullable=False)
+    
+    # --- ALTERAÇÃO APLICADA AQUI ---
+    # Aumentamos o limite de 20 para 100 para acomodar os IDs únicos do site.
+    whatsapp_number = db.Column(db.String(100), unique=True, nullable=False)
+    # --- FIM DA ALTERAÇÃO ---
+    
     name = db.Column(db.String(100))
-    first_contact = db.Column(DateTime, default=datetime.utcnow)
-    last_interaction = db.Column(DateTime, default=datetime.utcnow)
-    total_interactions = db.Column(Integer, default=0)
-    purchased = db.Column(Boolean, default=False)
-    purchase_date = db.Column(DateTime)
+    first_contact = db.Column(db.DateTime, default=datetime.utcnow)
+    last_interaction = db.Column(db.DateTime, default=datetime.utcnow)
+    total_interactions = db.Column(db.Integer, default=0)
+    purchased = db.Column(db.Boolean, default=False)
+    purchase_date = db.Column(db.DateTime)
     
     # Relationships
     conversations = db.relationship('Conversation', backref='customer', lazy=True, cascade='all, delete-orphan')
@@ -46,37 +48,14 @@ class Customer(db.Model):
 class Conversation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    message_type = db.Column(db.String(20), nullable=False)  # 'incoming' or 'outgoing'
-    message_content = db.Column(Text, nullable=False)
-    timestamp = db.Column(DateTime, default=datetime.utcnow)
-    ai_strategy = db.Column(db.String(100))  # Strategy used by AI for this message
-    sentiment_score = db.Column(Float)  # Customer sentiment analysis
+    message_type = db.Column(db.String(20), nullable=False)
+    message_content = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    ai_strategy = db.Column(db.String(100))
+    sentiment_score = db.Column(db.Float)
     
 class Sale(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)  # Reference to Product
-    product_name = db.Column(db.String(200), nullable=False)  # Keep for backward compatibility
-    sale_amount = db.Column(Float, nullable=False)
-    sale_date = db.Column(DateTime, default=datetime.utcnow)
-    conversation_messages = db.Column(Integer, default=0)  # Number of messages in the conversation that led to sale
-    
-class AILearningData(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    strategy_name = db.Column(db.String(100), nullable=False)
-    success_count = db.Column(Integer, default=0)
-    total_attempts = db.Column(Integer, default=0)
-    success_rate = db.Column(Float, default=0.0)
-    last_updated = db.Column(DateTime, default=datetime.utcnow)
-    
-    # Conversation context that led to success/failure
-    context_keywords = db.Column(Text)  # JSON string of keywords that were present
-    customer_sentiment = db.Column(Float)
-    message_sequence = db.Column(Text)  # JSON string of message types in sequence
-
-class WhatsAppWebhook(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    webhook_data = db.Column(Text, nullable=False)  # Raw webhook JSON
-    processed = db.Column(Boolean, default=False)
-    timestamp = db.Column(DateTime, default=datetime.utcnow)
-    error_message = db.Column(Text)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
+    product_name = db.Column(db.String(200), nullable=
