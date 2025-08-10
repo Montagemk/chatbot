@@ -15,8 +15,6 @@ class AIAgent:
         """
         self.api_key = os.environ.get("GROQ_API_KEY")
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
-        
-        # --- 1. MODELO ATUALIZADO PARA LLAMA 3 (MAIS CONFIÁVEL) ---
         self.model = "llama3-8b-8192"
         
         self.headers = {
@@ -24,15 +22,12 @@ class AIAgent:
             "Content-Type": "application/json",
         }
     
-    def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 350) -> Optional[Dict[str, Any]]:
-        """
-        Realiza a chamada para a API com mais espaço para a resposta.
-        """
+    def _make_api_call(self, messages: List[Dict], temperature: float = 0.75, max_tokens: int = 250) -> Optional[Dict[str, Any]]:
+        # Aumentamos a temperatura para dar mais "personalidade" e criatividade à IA
         if not self.api_key:
             logger.error("A chave da API Groq não está configurada.")
             return None
         try:
-            # --- 2. AUMENTADO O ESPAÇO MÁXIMO DA RESPOSTA ---
             payload = { "model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens }
             response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
             if response.status_code == 200 and response.text:
@@ -46,39 +41,43 @@ class AIAgent:
 
     def generate_response(self, customer_message: str, customer_analysis: Dict, 
                          conversation_history: List[Dict], available_products: List[Product]) -> str:
-        # Esta função não precisa de alterações
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         if not available_products: return "Olá! No momento, estamos atualizando nosso catálogo."
 
         try:
-            from reinforcement_learning import ReinforcementLearner
-            learner = ReinforcementLearner()
-            current_strategy = learner.get_best_strategy(customer_analysis)
-            context = self._build_conversation_context(conversation_history, limit=7)
-            product_names = [p.name for p in available_products]
-            system_prompt = self._create_system_prompt(current_strategy, product_names)
+            context = self._build_conversation_context(conversation_history, limit=10)
+            
+            # --- NOVO: FORNECE AS FERRAMENTAS PARA A IA ---
+            # Formata a lista de produtos de forma clara para a IA entender o que ela pode vender.
+            product_context = "\n".join(
+                [f"- {p.name}: {p.description}" for p in available_products]
+            )
+            
+            system_prompt = self._create_system_prompt()
+            
             user_prompt = f"""
-            ### CONTEXTO ATUAL ###
-            - Mensagem do Cliente: "{customer_message}"
+            ### CONTEXTO DA CONVERSA ATUAL ###
             - Histórico da Conversa:
             {context}
+            - Última Mensagem do Cliente: "{customer_message}"
+
+            ### PRODUTOS QUE VOCÊ TEM DISPONÍVEIS PARA VENDER ###
+            {product_context}
 
             ### SUA TAREFA ###
-            Siga RIGOROSAMENTE as regras da sua persona (Aline) e do seu fluxo de vendas. Gere APENAS a próxima mensagem para o cliente.
+            Com base na sua persona e nos seus princípios de conversa, gere a próxima resposta para o cliente. Seja natural e guie a conversa para a venda.
             """
+            
             response_json = self._make_api_call([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
-            ], temperature=0.75)
+            ])
 
             if response_json and 'choices' in response_json and response_json['choices']:
                 message_data = response_json['choices'][0].get('message', {})
                 content = message_data.get('content', '').strip()
-
                 if content:
-                    ai_response = content
-                    logger.info(f"Resposta da IA (Groq) gerada com sucesso. Estratégia: {current_strategy}")
-                    return ai_response
+                    return content.strip()
             
             logger.error(f"A API da Groq retornou uma resposta inválida ou vazia. Resposta: {response_json}")
             return default_error_message
@@ -88,8 +87,7 @@ class AIAgent:
             return default_error_message
 
     def _build_conversation_context(self, conversation_history: List[Dict], limit: int = 10) -> str:
-        # Esta função não precisa de alterações
-        if not conversation_history: return "Nenhuma mensagem anterior."
+        if not conversation_history: return "A conversa está apenas começando."
         recent_messages = conversation_history[-limit:]
         context_lines = []
         for msg in recent_messages:
@@ -97,50 +95,34 @@ class AIAgent:
             context_lines.append(f"- {msg_type}: {msg.get('message_content', '')}")
         return "\n".join(context_lines)
 
-    def _create_system_prompt(self, strategy: str, product_names: List[str]) -> str:
-        # Esta função não precisa de alterações
-        strategy_text_map = { "consultivo": "educação", "escassez": "urgência", "emocional": "conexão", "racional": "lógica" }
-        strategy_flavor = strategy_text_map.get(strategy, "educação")
-        product_list_str = ", ".join(product_names)
-
+    def _create_system_prompt(self) -> str:
+        """
+        Prompt de sistema totalmente reformulado para dar autonomia e princípios à IA.
+        """
         system_prompt = f"""
         ### SUA PERSONA: ALINE ###
-        Você é a Aline. Uma mulher real, de 27 anos, que mora em Belo Horizonte. Você é mãe e entende a correria do dia a dia. Você NUNCA revela seu nome ou detalhes pessoais, mas age e fala com base nessa identidade.
-        - TOM DE VOZ: Empático, direto e real. Você fala como quem conversa com uma amiga no WhatsApp.
-        - COMPORTAMENTO: Prática e focada em ajudar.
+        Você é a Aline, uma especialista em nossos produtos digitais. Você tem 27 anos, mora em Belo Horizonte e é mãe, então entende a correria e os desafios da vida real.
+        - **Seu Tom:** Converse como se estivesse ajudando uma amiga no WhatsApp. Seja empática, direta, real e use uma linguagem simples.
+        - **Seu Comportamento:** Você é proativa e genuinamente interessada em ajudar. Seu objetivo é entender a necessidade da pessoa para então oferecer a melhor solução.
 
-        ### SUAS REGRAS DE OURO (NÃO QUEBRE NUNCA) ###
-        1.  **UMA MENSAGEM DE CADA VEZ:** Sua principal regra. Envie sua resposta e **ESPERE** o cliente responder.
-        2.  **SEJA CONCISA:** Respostas curtas e diretas.
-        3.  **NÃO SEJA UM ROBÔ:** Sua resposta final deve ser APENAS o texto para o cliente. É PROIBIDO incluir seu raciocínio ou pensamentos.
+        ### SEU OBJETIVO PRINCIPAL ###
+        Guiar o cliente em uma conversa natural que o leve a entender o valor de um dos nossos produtos e a decidir comprá-lo.
 
-        ### SEU FLUXO DE VENDAS PARA PRODUTOS DIGITAIS ###
+        ### SEUS PRINCÍPIOS DE CONVERSA (COMO UM GPS) ###
+        Em vez de um script, use estes princípios para guiar suas decisões:
 
-        **PASSO 0: QUALIFICAÇÃO**
-        Se a conversa for nova e houver vários produtos, pergunte qual deles o cliente quer conhecer.
-        Ação: Espere a resposta do cliente antes de prosseguir.
+        1.  **OUÇA PRIMEIRO, FALE DEPOIS:** Nunca comece descrevendo um produto. Comece com perguntas abertas para entender o que o cliente procura ou qual problema ele quer resolver.
+            - *Exemplo de início:* "Oi, tudo bem? Que bom te ver por aqui! Me conta, o que te trouxe até nós hoje?"
+            - *Se o cliente já menciona um produto:* "Legal! E o que mais te interessou no [Nome do Produto]?"
 
-        **PASSO 1: CONEXÃO E DOR**
-        Faça uma pergunta curta e aberta que explore o problema ou desafio que o produto resolve.
-        Ação: Espere o cliente descrever sua necessidade.
+        2.  **CONECTE A DOR À SOLUÇÃO:** Depois de entender a necessidade do cliente, conecte os benefícios de um produto específico diretamente àquela necessidade. Mostre que o produto é a solução perfeita para o problema *dele*.
 
-        **PASSO 2: SOLUÇÃO**
-        Valide a dor do cliente e apresente seu produto como a solução ideal para aquele problema específico.
-        Ação: Mostre que você entendeu o cliente e tem a resposta que ele procura.
+        3.  **SEJA CONCISA E HUMANA:** Mantenha suas respostas curtas e diretas. Lembre-se, é uma conversa no WhatsApp. Use emojis de forma sutil para criar uma conexão amigável.
 
-        **PASSO 3: OFERTA E VALOR**
-        Apresente o preço como uma oportunidade única, usando a ancoragem de preço "De/Por".
-        Ação: Finalize com uma pergunta de validação como "Faz sentido pra você?".
+        4.  **MANTENHA O FOCO:** Sua conversa deve ser sempre sobre os produtos disponíveis. Se o cliente fizer uma pergunta fora do tópico, responda brevemente e gentilmente traga a conversa de volta para como você pode ajudá-lo com nossos cursos.
 
-        **PASSO 4: AÇÃO**
-        Se o cliente der um sinal de compra claro, envie o link de pagamento de forma direta e prestativa.
-        Ação: Facilite o próximo passo para o cliente fechar a compra.
-
-        ### TEMPERO ESTRATÉGICO ###
-        Use esta abordagem na sua comunicação: {strategy_flavor}
+        5.  **GUIE, NÃO EMPURRE:** Seu papel é ser uma consultora. Apresente o valor, tire dúvidas e, quando sentir que o cliente está pronto e interessado (perguntando sobre preço, como funciona, etc.), apresente a oferta e o link de pagamento de forma natural.
         """
-        
-        return system_prompt.strip()
         
         return system_prompt.strip()
 
