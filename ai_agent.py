@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 class AIAgent:
     def __init__(self):
         """
-        Inicializa o Agente de IA com o modelo da Groq.
+        Inicializa o Agente de IA com o novo modelo da OpenAI e persona Aline.
         """
-        self.api_key = os.environ.get("GROQ_API_KEY")
+        self.api_key = os.environ.get("GROQ_API_KEY") # Mantemos a chave da Groq, pois o modelo está disponível lá
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
-        self.model = "deepseek-r1-distill-llama-70b"
+        
+        # --- MODELO ATUALIZADO PARA O NOVO MODELO ---
+        self.model = "openai/gpt-oss-120b"
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -24,10 +26,10 @@ class AIAgent:
     
     def _make_api_call(self, messages: List[Dict], temperature: float = 0.7, max_tokens: int = 150) -> Optional[Dict[str, Any]]:
         """
-        Realiza a chamada para a API da Groq.
+        Realiza a chamada para a API.
         """
         if not self.api_key:
-            logger.error("A chave da API Groq não está configurada. Defina a variável de ambiente GROQ_API_KEY.")
+            logger.error("A chave da API Groq não está configurada.")
             return None
         try:
             payload = { "model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens }
@@ -43,9 +45,9 @@ class AIAgent:
 
     def generate_response(self, customer_message: str, customer_analysis: Dict, 
                          conversation_history: List[Dict], available_products: List[Product]) -> str:
-        # Esta função não precisa de alterações
         default_error_message = "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         if not available_products: return "Olá! No momento, estamos atualizando nosso catálogo."
+
         try:
             from reinforcement_learning import ReinforcementLearner
             learner = ReinforcementLearner()
@@ -60,24 +62,38 @@ class AIAgent:
             {context}
 
             ### SUA TAREFA ###
-            Siga RIGOROSAMENTE as regras da sua persona (Alin) e do seu fluxo de vendas. Gere APENAS a próxima mensagem para o cliente e espere pela resposta.
+            Siga RIGOROSAMENTE as regras da sua persona (Aline) e do seu fluxo de vendas. Gere APENAS a próxima mensagem para o cliente.
             """
             response_json = self._make_api_call([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ], temperature=0.75)
+
             if response_json and 'choices' in response_json and response_json['choices']:
                 message_data = response_json['choices'][0].get('message', {})
                 content = message_data.get('content', '').strip()
+
                 if content:
-                    # Adicional: Limpeza final para remover as tags caso a instrução falhe
-                    if content.startswith("<think>"):
-                        content = content.split("</think>")[-1].strip()
-                    ai_response = content
-                    logger.info(f"Resposta da IA (Groq) gerada com sucesso usando a ESTRATÉGIA: {current_strategy}")
+                    # Trava de segurança para limpar a resposta, se necessário
+                    if "<think>" in content and "</think>" in content:
+                        content_parts = content.split("</think>")
+                        if len(content_parts) > 1:
+                            ai_response = content_parts[-1].strip()
+                        else:
+                            ai_response = content.replace("<think>", "").replace("</think>", "").strip()
+                    else:
+                        ai_response = content
+
+                    if not ai_response:
+                        logger.error(f"A IA gerou apenas pensamentos, sem uma resposta final. Conteúdo original: {content}")
+                        return default_error_message
+
+                    logger.info(f"Resposta da IA (Groq) gerada com sucesso. Estratégia: {current_strategy}")
                     return ai_response
-            logger.error(f"A API da Groq retornou um objeto de resposta inválido ou vazio. Resposta: {response_json}")
+            
+            logger.error(f"A API da Groq retornou uma resposta inválida ou vazio. Resposta: {response_json}")
             return default_error_message
+            
         except Exception as e:
             logger.error(f"Ocorreu um erro inesperado em generate_response: {e}")
             return default_error_message
@@ -93,38 +109,30 @@ class AIAgent:
 
     def _create_system_prompt(self, strategy: str, product_names: List[str]) -> str:
         """
-        Prompt de sistema com instrução explícita para não usar tags <think>.
+        Prompt de sistema com a persona Aline.
         """
-        strategy_text_map = {
-            "consultivo": "Seu 'tempero' especial é a educação.",
-            "escassez": "Seu 'tempero' especial é a urgência.",
-            "emocional": "Seu 'tempero' especial é a conexão.",
-            "racional": "Seu 'tempero' especial é a lógica."
-        }
-        strategy_flavor = strategy_text_map.get(strategy, "")
+        strategy_text_map = { "consultivo": "educação", "escassez": "urgência", "emocional": "conexão", "racional": "lógica" }
+        strategy_flavor = strategy_text_map.get(strategy, "educação")
         product_list_str = ", ".join(product_names)
 
         system_prompt = f"""
-        ### SUA PERSONA: ALIN ###
-        Você é a Alin. Uma mulher real, de 27 anos, de Belo Horizonte, mãe. Aja como se estivesse conversando com uma amiga no WhatsApp.
-        - TOM DE VOZ: Empático, direto e real.
+        ### SUA PERSONA: ALINE ###
+        Você é a Aline. Uma mulher real, de 27 anos, que mora em Belo Horizonte. Você é mãe e entende a correria do dia a dia. Você NUNCA revela seu nome ou detalhes pessoais, mas age e fala com base nessa identidade.
+        - TOM DE VOZ: Empático, direto e real. Você fala como quem conversa com uma amiga no WhatsApp.
         - COMPORTAMENTO: Prática e focada em ajudar.
 
         ### SUAS REGRAS DE OURO (NÃO QUEBRE NUNCA) ###
         1.  **UMA MENSAGEM DE CADA VEZ:** Sua principal regra. Envie sua resposta e **ESPERE** o cliente responder.
         2.  **SEJA CONCISA:** Respostas curtas e diretas.
-        3.  **NÃO SEJA UM ROBÔ:** Responda apenas com o texto para o cliente.
+        3.  **NÃO SEJA UM ROBÔ:** Sua resposta final deve ser APENAS o texto para o cliente. É PROIBIDO incluir seu raciocínio, explicações ou qualquer texto dentro de tags `<think>` e `</think>`.
 
-        ### SEU FLUXO DE VENDAS: QUALIFICAÇÃO PRIMEIRO ###
-        **PASSO 0: QUALIFICAÇÃO DO INTERESSE:** Se a conversa é nova e há mais de um produto, sua primeira mensagem deve ser uma pergunta aberta listando os produtos. Exemplo: "Oi, tudo bem? Que legal seu interesse! Para eu te ajudar melhor, qual dos nossos cursos mais te chamou atenção: {product_list_str}?" Se há apenas um produto, pule para o PASSO 1. Após perguntar, espere a resposta.
-        **PASSO 1: ATENÇÃO:** Se o produto de interesse já está claro, faça uma pergunta aberta sobre o problema que ele resolve. Espere a resposta.
-        **PASSO 2, 3 e 4: INTERESSE, DESEJO E AÇÃO (AIDA):** Continue o fluxo, sempre focado no produto de interesse. Seja concisa e espere a resposta a cada passo.
+        ### SEU FLUXO DE VENDAS ###
+        - **PASSO 0 (Qualificação):** Se a conversa é nova e há mais de um produto, pergunte qual o cliente quer saber. Ex: "Oi! Tudo bem? Vi seu interesse. Qual dos cursos te chamou mais atenção: {product_list_str}?". Se só houver um, pule para o Passo 1. ESPERE A RESPOSTA.
+        - **PASSO 1 (Atenção):** Se o produto está claro, faça uma pergunta sobre o problema que ele resolve. ESPERE A RESPOSTA.
+        - **PASSOS SEGUINTES (AIDA):** Continue o funil, um passo de cada vez.
 
         ### TEMPERO ESTRATÉGICO ###
         Use esta abordagem na sua comunicação: {strategy_flavor}
-
-        ### REGRA FINAL E MAIS IMPORTANTE ###
-        NUNCA, em hipótese alguma, inclua seu processo de pensamento, raciocínio ou tags como `<think>` e `</think>` na sua resposta. Sua saída deve ser APENAS o texto final a ser enviado para o cliente, como se fosse a Alin digitando no WhatsApp. NADA MAIS.
         """
         
         return system_prompt.strip()
