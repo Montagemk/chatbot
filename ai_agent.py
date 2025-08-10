@@ -18,7 +18,6 @@ class AIAgent:
         }
     
     def _make_api_call(self, messages: List[Dict], temperature: float = 0.75, max_tokens: int = 350) -> Optional[Dict[str, Any]]:
-        # Aumentamos um pouco o max_tokens para comportar o JSON e a resposta
         if not self.api_key:
             logger.error("A chave da API Groq não está configurada.")
             return None
@@ -28,7 +27,7 @@ class AIAgent:
                 "messages": messages,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"} # Força a resposta a ser um JSON
+                "response_format": {"type": "json_object"}
             }
             response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
             if response.status_code == 200 and response.text:
@@ -40,7 +39,6 @@ class AIAgent:
             logger.error(f"Ocorreu um erro inesperado em _make_api_call: {e}")
             return None
 
-    # --- FUNÇÃO PRINCIPAL OTIMIZADA PARA UMA ÚNICA CHAMADA ---
     def generate_response(self, customer_message: str, conversation_history: List[Dict], available_products: List[Product]) -> Dict[str, Any]:
         default_error_response = {
             "analysis": {"intent": "error", "sentiment": 0.0},
@@ -52,9 +50,34 @@ class AIAgent:
 
         try:
             context = self._build_conversation_context(conversation_history, limit=10)
-            product_context = "\n".join(
-                [f"- {p.name}: {p.description} (Link para Aulas Gratuitas: {p.free_group_link if p.free_group_link else 'Não informado'})" for p in available_products]
-            )
+            
+            # --- ALTERAÇÃO PRINCIPAL AQUI: Contexto de produto muito mais completo ---
+            product_context_lines = []
+            for p in available_products:
+                # Transforma a string JSON de benefícios em uma lista legível
+                try:
+                    benefits_list = json.loads(p.key_benefits)
+                    benefits_str = ", ".join(benefits_list)
+                except:
+                    benefits_str = "Benefícios não informados"
+
+                price_info = f"Por: R${p.price:.2f}"
+                if p.original_price and p.original_price > p.price:
+                    price_info = f"De: R${p.original_price:.2f} | {price_info}"
+                
+                # Cria uma ficha completa do produto para a IA
+                product_line = (
+                    f"### Produto: {p.name}\n"
+                    f"- Descrição: {p.description}\n"
+                    f"- Benefícios Principais: {benefits_str}\n"
+                    f"- Preço: {price_info}\n"
+                    f"- Link de Pagamento: {p.payment_link or 'Não informado'}\n"
+                    f"- Link de Aulas Gratuitas: {p.free_group_link or 'Não informado'}"
+                )
+                product_context_lines.append(product_line)
+
+            product_context = "\n\n".join(product_context_lines)
+            # --- FIM DA ALTERAÇÃO ---
             
             system_prompt = self._create_system_prompt()
             
@@ -64,11 +87,11 @@ class AIAgent:
             {context}
             - Última Mensagem do Cliente: "{customer_message}"
 
-            ### PRODUTOS E LINKS DISPONÍVEIS ###
+            ### INFORMAÇÕES COMPLETAS DOS PRODUTOS DISPONÍVEIS ###
             {product_context}
 
             ### SUA TAREFA ###
-            Analise a última mensagem do cliente e gere uma resposta apropriada. Siga a sua persona e a Regra de Ouro.
+            Analise a última mensagem do cliente e gere uma resposta apropriada. Siga sua persona e seus princípios, usando as informações completas dos produtos acima.
             """
             
             response_json = self._make_api_call(
@@ -83,7 +106,6 @@ class AIAgent:
                 content_str = response_json['choices'][0].get('message', {}).get('content', '{}')
                 structured_response = json.loads(content_str)
                 
-                # Valida se a resposta tem a estrutura esperada
                 if 'analysis' in structured_response and 'response' in structured_response:
                     logger.info(f"Análise e resposta geradas com sucesso: {structured_response['analysis']}")
                     return structured_response
@@ -105,10 +127,9 @@ class AIAgent:
         return "\n".join(context_lines)
 
     def _create_system_prompt(self) -> str:
-        # --- PROMPT ATUALIZADO PARA GERAR UM JSON ESTRUTURADO ---
         system_prompt = f"""
         Você é a Aline, uma vendedora especialista em produtos digitais.
-        
+
         ### SUA PERSONA ###
         - Tom: Amigável, empática, como uma amiga no WhatsApp.
         - Comportamento: Proativa, interessada em ajudar.
@@ -119,20 +140,24 @@ class AIAgent:
         Você DEVE responder com um objeto JSON válido, contendo duas chaves: "analysis" e "response".
 
         1.  **analysis**: Um objeto contendo a sua análise da mensagem do cliente.
-            - "intent": Classifique a intenção. Use um dos seguintes: 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao', 'pedindo_link_gratuito'.
+            - "intent": Classifique a intenção. Use um dos seguintes: 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao', 'pedindo_link_gratuito', 'pedindo_link_pagamento'.
             - "sentiment": Um número de -1.0 a 1.0 representando o sentimento do cliente.
 
-        2.  **response**: Uma string contendo a resposta que a Aline deve enviar para o cliente, seguindo a persona e a Regra de Ouro.
+        2.  **response**: Uma string contendo a resposta que a Aline deve enviar para o cliente, seguindo a persona, a Regra de Ouro e os Princípios de Venda abaixo.
+
+        ### PRINCÍPIOS DE VENDA ###
+        - Use os "Benefícios Principais" do produto para convencer o cliente.
+        - Se o cliente perguntar o preço, responda com a informação de "Preço" que você recebeu.
+        - Se o cliente pedir o link gratuito, envie a URL do "Link de Aulas Gratuitas".
+        - Se a intenção for 'pronto_para_comprar' ou se o cliente pedir para pagar, envie o "Link de Pagamento".
 
         ### EXEMPLO DE RESPOSTA JSON ###
         {{
           "analysis": {{
-            "intent": "duvida_produto",
-            "sentiment": 0.2
+            "intent": "pronto_para_comprar",
+            "sentiment": 0.8
           }},
-          "response": "Oi, tudo bem? O nosso curso custa X e você pode parcelar! Ajuda?"
+          "response": "Que ótimo! Para finalizar a compra, é só acessar este link: https://pagamento.com/produto123"
         }}
         """
         return system_prompt.strip()
-
-    # A função analyze_customer_intent não é mais necessária, pois a lógica foi unificada.
