@@ -49,13 +49,10 @@ def web_chat_webhook():
         webhook_data = request.get_json()
         message_content = webhook_data.get('message', '')
         
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Agora, o sender_id é obrigatório.
         sender_id = webhook_data.get('sender')
         if not sender_id:
             logger.error("Requisição recebida sem um 'sender_id'.")
             return jsonify([{"text": "Erro de configuração: ID do remetente ausente."}]), 400
-        # --- FIM DA CORREÇÃO ---
 
         if not message_content:
             return jsonify([{"text": "Mensagem vazia."}]), 400
@@ -72,10 +69,20 @@ def web_chat_webhook():
         customer.total_interactions = (customer.total_interactions or 0) + 1
         conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.asc()).limit(20).all()
         conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
+        
         customer_analysis = ai_agent.analyze_customer_intent(message_content, conversation_dict)
+        
         ai_response = ai_agent.generate_response(message_content, customer_analysis, conversation_dict, available_products=available_products)
+        
         incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
+        
+        # --- ALTERAÇÃO APLICADA AQUI ---
+        # Salvamos o score de sentimento obtido da análise da IA no banco de dados.
+        incoming_conversation.sentiment_score = customer_analysis.get('sentiment', 0.0)
+        # --- FIM DA ALTERAÇÃO ---
+
         outgoing_conversation = Conversation(customer_id=customer.id, message_type='outgoing', message_content=ai_response)
+        
         db.session.add_all([incoming_conversation, outgoing_conversation])
         db.session.commit()
         logger.info(f"Mensagem de {sender_id} processada com sucesso.")
