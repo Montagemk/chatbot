@@ -36,7 +36,7 @@ class AIAgent:
             logger.error("A chave da API Groq não está configurada. Defina a variável de ambiente GROQ_API_KEY.")
             return None
         try:
-            payload = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "timeout": 25}
+            payload = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
             response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
             if response.status_code == 200 and response.text:
                 return response.json()
