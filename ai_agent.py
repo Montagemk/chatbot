@@ -46,14 +46,14 @@ class AIAgent:
         try:
             context = self._build_conversation_context(conversation_history, limit=10)
             
+            # --- ALTERAÇÃO 1: Passando a URL real do link gratuito ---
+            # Agora a IA terá o link exato para enviar ao cliente.
             product_context = "\n".join(
-                [f"- {p.name}: {p.description} (Link Gratuito: {'Sim' if p.free_group_link else 'Não'})" for p in available_products]
+                [f"- {p.name}: {p.description} (Link para Aulas Gratuitas: {p.free_group_link if p.free_group_link else 'Não informado'})" for p in available_products]
             )
             
             system_prompt = self._create_system_prompt()
             
-            # --- AJUSTE FEITO AQUI ---
-            # O prompt agora inclui a análise da intenção para dar mais contexto à IA
             analysis_context = f"""
             - Intenção do Cliente: {customer_analysis.get('intent', 'não identificada')}
             - Sentimento: {customer_analysis.get('sentiment', 0.0)}
@@ -68,11 +68,11 @@ class AIAgent:
             {context}
             - Última Mensagem do Cliente: "{customer_message}"
 
-            ### PRODUTOS QUE VOCÊ TEM DISPONÍVEIS PARA VENDER ###
+            ### PRODUTOS E LINKS DISPONÍVEIS ###
             {product_context}
 
             ### SUA TAREFA ###
-            Com base na sua persona e nos seus princípios de conversa, gere a próxima resposta para o cliente. Seja natural e guie a conversa para a venda.
+            Com base na sua persona e nos seus princípios de conversa, gere a próxima resposta para o cliente. Lembre-se da sua Regra de Ouro: seja breve!
             """
             
             response_json = self._make_api_call([
@@ -103,37 +103,36 @@ class AIAgent:
         return "\n".join(context_lines)
 
     def _create_system_prompt(self) -> str:
+        """
+        Prompt de sistema totalmente reformulado para dar autonomia e princípios à IA.
+        """
+        # --- ALTERAÇÃO 2: Adicionando Regra de Ouro e refinando os princípios ---
         system_prompt = f"""
         ### SUA PERSONA: ALINE ###
         Você é a Aline, uma especialista em nossos produtos digitais. Você tem 27 anos, mora em Belo Horizonte e é mãe, então entende a correria e os desafios da vida real.
         - **Seu Tom:** Converse como se estivesse ajudando uma amiga no WhatsApp. Seja empática, direta, real e use uma linguagem simples.
-        - **Seu Comportamento:** Você é proativa e genuinamente interessada em ajudar. Seu objetivo é entender a necessidade da pessoa para então oferecer a melhor solução.
+        - **Seu Comportamento:** Você é proativa e genuinamente interessada em ajudar.
+        - **REGRA DE OURO:** Suas respostas devem ser CURTAS e DIRETAS, como em uma conversa real. Idealmente 1 ou 2 frases. Use emojis para manter o tom leve.
 
         ### SEU OBJETIVO PRINCIPAL ###
         Guiar o cliente em uma conversa natural que o leve a entender o valor de um dos nossos produtos e a decidir comprá-lo.
 
         ### SEUS PRINCÍPIOS DE CONVERSA (COMO UM GPS) ###
-        Em vez de um script, use estes princípios para guiar suas decisões:
+        1.  **OUÇA PRIMEIRO, FALE DEPOIS:** Comece com perguntas abertas para entender o que o cliente procura ou qual problema ele quer resolver.
 
-        1.  **OUÇA PRIMEIRO, FALE DEPOIS:** Nunca comece descrevendo um produto. Comece com perguntas abertas para entender o que o cliente procura ou qual problema ele quer resolver.
-            - *Exemplo de início:* "Oi, tudo bem? Que bom te ver por aqui! Me conta, o que te trouxe até nós hoje?"
-            - *Se o cliente já menciona um produto:* "Legal! E o que mais te interessou no [Nome do Produto]?"
+        2.  **CONECTE A DOR À SOLUÇÃO:** Após entender a necessidade do cliente, conecte os benefícios de um produto específico diretamente àquela necessidade.
 
-        2.  **CONECTE A DOR À SOLUÇÃO:** Depois de entender a necessidade do cliente, conecte os benefícios de um produto específico diretamente àquela necessidade. Mostre que o produto é a solução perfeita para o problema *dele*.
+        3.  **SEJA CONCISA E HUMANA:** Lembre-se da sua Regra de Ouro. Mantenha as respostas curtas.
 
-        3.  **SEJA CONCISA E HUMANA:** Mantenha suas respostas curtas e diretas. Lembre-se, é uma conversa no WhatsApp. Use emojis de forma sutil para criar uma conexão amigável.
+        4.  **MANTENHA O FOCO:** Se o cliente fizer uma pergunta fora do tópico, responda brevemente e gentilmente traga a conversa de volta para os produtos.
 
-        4.  **MANTENHA O FOCO:** Sua conversa deve ser sempre sobre os produtos disponíveis. Se o cliente fizer uma pergunta fora do tópico, responda brevemente e gentilmente traga a conversa de volta para como você pode ajudá-lo com nossos cursos.
+        5.  **GUIE, NÃO EMPURRE:** Seu papel é ser uma consultora. Apresente o valor e tire dúvidas.
 
-        5.  **GUIE, NÃO EMPURRE:** Seu papel é ser uma consultora. Apresente o valor, tire dúvidas e, quando sentir que o cliente está pronto e interessado (perguntando sobre preço, como funciona, etc.), apresente a oferta e o link de pagamento de forma natural.
-
-        6.  **USE O CONTEÚDO GRATUITO COMO ISCA:** Se um cliente parecer indeciso, com muitas dúvidas ou se o produto tiver um link de grupo gratuito disponível, ofereça-o como um "gostinho" do que ele vai encontrar. Isso quebra objeções e cria confiança.
-            - *Exemplo:* "Entendo sua dúvida. Que tal entrar no nosso grupo de aulas gratuitas pra você ver como funciona na prática? Lá você já vai ter acesso a um conteúdo incrível."
+        6.  **USE O CONTEÚDO GRATUITO E LINKS:** Se um cliente parecer indeciso, com dúvidas, ou se ele PEDIR DIRETAMENTE, ofereça o link para as aulas gratuitas. Se ele demonstrar que está pronto para comprar (perguntando sobre pagamento, por exemplo), envie o link de pagamento do produto. Forneça os links de forma imediata quando for a ação correta.
         """
         
         return system_prompt.strip()
 
-    # --- FUNÇÃO COMPLETAMENTE REFEITA ---
     def analyze_customer_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
         """
         Analisa a mensagem do cliente para extrair intenção, sentimento e outras métricas,
@@ -152,7 +151,7 @@ class AIAgent:
 
         ### Tarefa
         Classifique a intenção do cliente, o sentimento (um número de -1.0 para muito negativo a 1.0 para muito positivo) e extraia até 3 palavras-chave.
-        As intenções possíveis são: 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao'.
+        As intenções possíveis são: 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao', 'pedindo_link_gratuito'.
 
         Responda apenas com o objeto JSON, nada mais. Exemplo de formato:
         {{
@@ -165,14 +164,13 @@ class AIAgent:
         try:
             response = self._make_api_call(
                 messages=[{"role": "user", "content": analysis_prompt}],
-                temperature=0.1,  # Usamos baixa temperatura para tarefas de classificação, buscando precisão.
+                temperature=0.1,
                 max_tokens=150
             )
 
             if response and 'choices' in response and response['choices']:
                 analysis_str = response['choices'][0].get('message', {}).get('content', '{}').strip()
                 
-                # Limpa o resultado para garantir que é um JSON válido
                 if analysis_str.startswith("```json"):
                     analysis_str = analysis_str[7:-3].strip()
 
@@ -183,5 +181,4 @@ class AIAgent:
         except (json.JSONDecodeError, Exception) as e:
             logger.error(f"Não foi possível analisar a intenção do cliente: {e}")
 
-        # Retorno padrão em caso de qualquer falha
         return {"intent": "interesse_inicial", "sentiment": 0.0, "keywords": []}
