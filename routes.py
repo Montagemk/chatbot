@@ -7,11 +7,28 @@ from datetime import datetime, timedelta
 import json
 import logging
 import os
+# --- ALTERAÇÃO 1: Importação necessária para o decorator ---
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
 ai_agent = None
 learner = None
+
+# --- ALTERAÇÃO 2: Lógica de verificação da Chave de API ---
+# Pega a chave secreta das variáveis de ambiente. Use um valor seguro em produção.
+SECRET_API_KEY = os.environ.get("WEBCHAT_API_KEY", "sua-chave-secreta-deve-ser-trocada")
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Verifica se o cabeçalho 'X-API-Key' na requisição corresponde à nossa chave secreta
+        if request.headers.get('X-API-Key') != SECRET_API_KEY:
+            logger.warning("Tentativa de acesso ao webhook com API Key inválida.")
+            return jsonify({"error": "Chave de API inválida ou ausente"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+# --- FIM DA ALTERAÇÃO 2 ---
 
 def init_handlers():
     """Initialize handlers within application context"""
@@ -21,7 +38,6 @@ def init_handlers():
     if learner is None:
         learner = ReinforcementLearner()
 
-# ... (outras rotas como '/', '/webhook', '/simulate_sale' permanecem as mesmas)
 @app.route('/')
 def dashboard():
     try:
@@ -42,6 +58,7 @@ def dashboard():
         return render_template('dashboard.html', error=str(e))
 
 @app.route('/webhook', methods=['POST'])
+@require_api_key  # --- ALTERAÇÃO 3: Aplicando o decorator de segurança na rota ---
 def web_chat_webhook():
     try:
         if ai_agent is None:
@@ -75,12 +92,7 @@ def web_chat_webhook():
         ai_response = ai_agent.generate_response(message_content, customer_analysis, conversation_dict, available_products=available_products)
         
         incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
-        
-        # --- ALTERAÇÃO APLICADA AQUI ---
-        # Salvamos o score de sentimento obtido da análise da IA no banco de dados.
         incoming_conversation.sentiment_score = customer_analysis.get('sentiment', 0.0)
-        # --- FIM DA ALTERAÇÃO ---
-
         outgoing_conversation = Conversation(customer_id=customer.id, message_type='outgoing', message_content=ai_response)
         
         db.session.add_all([incoming_conversation, outgoing_conversation])
@@ -91,6 +103,9 @@ def web_chat_webhook():
         logger.error(f"Erro ao processar mensagem do chat web: {e}")
         db.session.rollback()
         return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
+
+# O restante do arquivo (simulate_sale, conversations, products, etc.) permanece exatamente igual.
+# ... (cole o restante do seu arquivo routes.py aqui)
 
 @app.route('/simulate_sale', methods=['POST'])
 def simulate_sale():
@@ -117,7 +132,6 @@ def simulate_sale():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# --- ROTA DE CONVERSAS CORRIGIDA ---
 @app.route('/conversations')
 def conversations():
     try:
@@ -125,7 +139,6 @@ def conversations():
         customers = Customer.query.order_by(Customer.last_interaction.desc()).paginate(
             page=page, per_page=20, error_out=False
         )
-        # CORREÇÃO: Passa a hora atual ('now') para o template poder fazer cálculos de tempo.
         return render_template('conversations.html', customers=customers, now=datetime.utcnow())
     except Exception as e:
         logger.error(f"Error loading conversations page: {e}")
@@ -156,7 +169,6 @@ def products():
 
 @app.route('/products/new', methods=['GET', 'POST'])
 def new_product():
-    # Esta rota permanece a mesma
     if request.method == 'POST':
         try:
             name=request.form.get('name')
@@ -185,7 +197,6 @@ def new_product():
 
 @app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
 def edit_product(product_id):
-    # Esta rota permanece a mesma
     product = Product.query.get_or_404(product_id)
     if request.method == 'POST':
         try:
@@ -230,7 +241,6 @@ def delete_product(product_id):
         flash(f'Erro ao remover produto: {str(e)}', 'error')
     return redirect(url_for('products'))
 
-# --- ROTA DE NICHOS CORRIGIDA ---
 @app.route('/niches')
 def niches():
     try:
@@ -246,7 +256,6 @@ def niches():
         ).filter(Product.is_active == True
         ).group_by(Product.niche).all()
         
-        # CORREÇÃO: Converte o resultado da query para uma lista de dicionários.
         niche_stats = [
             {
                 "niche": row.niche,
