@@ -58,4 +58,26 @@ class Sale(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
-    product_name = db.Column(db.String(200), nullable=
+    product_name = db.Column(db.String(200), nullable=False)
+    sale_amount = db.Column(db.Float, nullable=False)
+    sale_date = db.Column(db.DateTime, default=datetime.utcnow)
+    conversation_messages = db.Column(db.Integer, default=0)
+    
+class AILearningData(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    strategy_name = db.Column(db.String(100), nullable=False)
+    success_count = db.Column(db.Integer, default=0)
+    total_attempts = db.Column(db.Integer, default=0)
+    success_rate = db.Column(db.Float, default=0.0)
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    context_keywords = db.Column(db.Text)
+    customer_sentiment = db.Column(db.Float)
+    message_sequence = db.Column(db.Text)
+
+class WhatsAppWebhook(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    webhook_data = db.Column(db.Text, nullable=False)
+    processed = db.Column(db.Boolean, default=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    error_message = db.Column(db.Text)
