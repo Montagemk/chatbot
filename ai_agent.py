@@ -51,10 +51,8 @@ class AIAgent:
         try:
             context = self._build_conversation_context(conversation_history, limit=10)
             
-            # --- ALTERAÇÃO PRINCIPAL AQUI: Contexto de produto muito mais completo ---
             product_context_lines = []
             for p in available_products:
-                # Transforma a string JSON de benefícios em uma lista legível
                 try:
                     benefits_list = json.loads(p.key_benefits)
                     benefits_str = ", ".join(benefits_list)
@@ -65,7 +63,6 @@ class AIAgent:
                 if p.original_price and p.original_price > p.price:
                     price_info = f"De: R${p.original_price:.2f} | {price_info}"
                 
-                # Cria uma ficha completa do produto para a IA
                 product_line = (
                     f"### Produto: {p.name}\n"
                     f"- Descrição: {p.description}\n"
@@ -77,7 +74,6 @@ class AIAgent:
                 product_context_lines.append(product_line)
 
             product_context = "\n\n".join(product_context_lines)
-            # --- FIM DA ALTERAÇÃO ---
             
             system_prompt = self._create_system_prompt()
             
@@ -127,6 +123,7 @@ class AIAgent:
         return "\n".join(context_lines)
 
     def _create_system_prompt(self) -> str:
+        # --- ALTERAÇÃO APLICADA AQUI: Ensinando a IA a criar botões ---
         system_prompt = f"""
         Você é a Aline, uma vendedora especialista em produtos digitais.
 
@@ -137,27 +134,28 @@ class AIAgent:
 
         ### SUA TAREFA ###
         Sua tarefa é analisar a mensagem do cliente e formular a resposta da Aline.
-        Você DEVE responder com um objeto JSON válido, contendo duas chaves: "analysis" e "response".
+        Você DEVE responder com um objeto JSON válido, contendo "analysis" e "response".
 
-        1.  **analysis**: Um objeto contendo a sua análise da mensagem do cliente.
-            - "intent": Classifique a intenção. Use um dos seguintes: 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao', 'pedindo_link_gratuito', 'pedindo_link_pagamento'.
-            - "sentiment": Um número de -1.0 a 1.0 representando o sentimento do cliente.
+        1.  **analysis**: Objeto com a sua análise.
+            - "intent": 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao', 'pedindo_link_gratuito', 'pedindo_link_pagamento'.
+            - "sentiment": Um número de -1.0 a 1.0.
 
-        2.  **response**: Uma string contendo a resposta que a Aline deve enviar para o cliente, seguindo a persona, a Regra de Ouro e os Princípios de Venda abaixo.
+        2.  **response**: A string com a resposta da Aline.
 
-        ### PRINCÍPIOS DE VENDA ###
-        - Use os "Benefícios Principais" do produto para convencer o cliente.
-        - Se o cliente perguntar o preço, responda com a informação de "Preço" que você recebeu.
-        - Se o cliente pedir o link gratuito, envie a URL do "Link de Aulas Gratuitas".
-        - Se a intenção for 'pronto_para_comprar' ou se o cliente pedir para pagar, envie o "Link de Pagamento".
+        ### PRINCÍPIOS DE VENDA E FORMATAÇÃO ###
+        - Use os "Benefícios Principais" para convencer.
+        - Se o cliente perguntar o preço, responda com a informação de "Preço".
+        - **IMPORTANTE: Ao enviar um link, use o formato especial `[botão:Texto do Botão|URL]`.**
+            - Exemplo para link gratuito: "Que tal ver umas aulas grátis? É só clicar aqui!\\n\\n[botão:Acessar Aulas Gratuitas|https://link_gratuito.com]"
+            - Exemplo para link de pagamento: "Que ótimo! Para finalizar a compra, é só acessar este link:\\n\\n[botão:Finalizar Compra Agora|https://link_pagamento.com]"
 
         ### EXEMPLO DE RESPOSTA JSON ###
         {{
           "analysis": {{
-            "intent": "pronto_para_comprar",
+            "intent": "pedindo_link_pagamento",
             "sentiment": 0.8
           }},
-          "response": "Que ótimo! Para finalizar a compra, é só acessar este link: https://pagamento.com/produto123"
+          "response": "Maravilha! Para garantir sua vaga é só clicar no botão abaixo.\\n\\n[botão:Garantir Minha Vaga|https://pagamento.com/produto123]"
         }}
         """
         return system_prompt.strip()
