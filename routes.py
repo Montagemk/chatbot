@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import json
 import logging
 import os
-# --- ALTERAÇÃO 1: Importação necessária para o decorator ---
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -15,28 +14,87 @@ logger = logging.getLogger(__name__)
 ai_agent = None
 learner = None
 
-# --- ALTERAÇÃO 2: Lógica de verificação da Chave de API ---
-# Pega a chave secreta das variáveis de ambiente. Use um valor seguro em produção.
 SECRET_API_KEY = os.environ.get("WEBCHAT_API_KEY", "sua-chave-secreta-deve-ser-trocada")
 
 def require_api_key(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Verifica se o cabeçalho 'X-API-Key' na requisição corresponde à nossa chave secreta
         if request.headers.get('X-API-Key') != SECRET_API_KEY:
             logger.warning("Tentativa de acesso ao webhook com API Key inválida.")
             return jsonify({"error": "Chave de API inválida ou ausente"}), 403
         return f(*args, **kwargs)
     return decorated_function
-# --- FIM DA ALTERAÇÃO 2 ---
 
 def init_handlers():
-    """Initialize handlers within application context"""
     global ai_agent, learner
     if ai_agent is None:
         ai_agent = AIAgent()
     if learner is None:
         learner = ReinforcementLearner()
+
+@app.route('/webhook', methods=['POST'])
+@require_api_key
+def web_chat_webhook():
+    try:
+        if ai_agent is None:
+            init_handlers()
+        webhook_data = request.get_json()
+        message_content = webhook_data.get('message', '')
+        sender_id = webhook_data.get('sender')
+        
+        if not sender_id or not message_content:
+            return jsonify([{"text": "Dados da requisição incompletos."}]), 400
+
+        available_products = Product.query.filter_by(is_active=True).all()
+        if not available_products:
+            return jsonify([{"text": "Olá! No momento, estamos atualizando nosso catálogo."}]), 200
+        
+        customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
+        if not customer:
+            customer = Customer(whatsapp_number=sender_id, name=f"Visitante_{sender_id[:6]}")
+            db.session.add(customer)
+            db.session.flush()
+            
+        customer.last_interaction = datetime.utcnow()
+        customer.total_interactions = (customer.total_interactions or 0) + 1
+        
+        conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.asc()).limit(20).all()
+        conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
+        
+        # --- ALTERAÇÃO PRINCIPAL AQUI ---
+        # Fazemos uma única chamada que retorna tanto a análise quanto a resposta.
+        structured_response = ai_agent.generate_response(message_content, conversation_dict, available_products)
+        
+        customer_analysis = structured_response.get("analysis", {})
+        ai_response_text = structured_response.get("response", "Desculpe, não consegui processar sua mensagem.")
+        # --- FIM DA ALTERAÇÃO ---
+
+        incoming_conversation = Conversation(
+            customer_id=customer.id,
+            message_type='incoming',
+            message_content=message_content,
+            sentiment_score=customer_analysis.get('sentiment', 0.0)
+        )
+        
+        outgoing_conversation = Conversation(
+            customer_id=customer.id,
+            message_type='outgoing',
+            message_content=ai_response_text
+        )
+        
+        db.session.add_all([incoming_conversation, outgoing_conversation])
+        db.session.commit()
+        
+        logger.info(f"Mensagem de {sender_id} processada com sucesso.")
+        return jsonify([{"recipient_id": sender_id, "text": ai_response_text}]), 200
+
+    except Exception as e:
+        logger.error(f"Erro ao processar mensagem do chat web: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
+
+# O restante do arquivo (dashboard, simulate_sale, etc.) permanece inalterado
+# ... (cole o restante do seu arquivo routes.py aqui)
 
 @app.route('/')
 def dashboard():
@@ -56,56 +114,6 @@ def dashboard():
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         return render_template('dashboard.html', error=str(e))
-
-@app.route('/webhook', methods=['POST'])
-@require_api_key  # --- ALTERAÇÃO 3: Aplicando o decorator de segurança na rota ---
-def web_chat_webhook():
-    try:
-        if ai_agent is None:
-            init_handlers()
-        webhook_data = request.get_json()
-        message_content = webhook_data.get('message', '')
-        
-        sender_id = webhook_data.get('sender')
-        if not sender_id:
-            logger.error("Requisição recebida sem um 'sender_id'.")
-            return jsonify([{"text": "Erro de configuração: ID do remetente ausente."}]), 400
-
-        if not message_content:
-            return jsonify([{"text": "Mensagem vazia."}]), 400
-        available_products = Product.query.filter_by(is_active=True).all()
-        if not available_products:
-            logger.warning("Nenhum produto ativo encontrado no banco de dados.")
-            return jsonify([{"text": "Olá! No momento, estamos atualizando nosso catálogo. Volte em breve!"}]), 200
-        customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
-        if not customer:
-            customer = Customer(whatsapp_number=sender_id, name=f"Visitante_{sender_id[:6]}")
-            db.session.add(customer)
-            db.session.flush()
-        customer.last_interaction = datetime.utcnow()
-        customer.total_interactions = (customer.total_interactions or 0) + 1
-        conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.asc()).limit(20).all()
-        conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
-        
-        customer_analysis = ai_agent.analyze_customer_intent(message_content, conversation_dict)
-        
-        ai_response = ai_agent.generate_response(message_content, customer_analysis, conversation_dict, available_products=available_products)
-        
-        incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
-        incoming_conversation.sentiment_score = customer_analysis.get('sentiment', 0.0)
-        outgoing_conversation = Conversation(customer_id=customer.id, message_type='outgoing', message_content=ai_response)
-        
-        db.session.add_all([incoming_conversation, outgoing_conversation])
-        db.session.commit()
-        logger.info(f"Mensagem de {sender_id} processada com sucesso.")
-        return jsonify([{"recipient_id": sender_id, "text": ai_response}]), 200
-    except Exception as e:
-        logger.error(f"Erro ao processar mensagem do chat web: {e}")
-        db.session.rollback()
-        return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
-
-# O restante do arquivo (simulate_sale, conversations, products, etc.) permanece exatamente igual.
-# ... (cole o restante do seu arquivo routes.py aqui)
 
 @app.route('/simulate_sale', methods=['POST'])
 def simulate_sale():
