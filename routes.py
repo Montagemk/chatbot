@@ -48,7 +48,15 @@ def web_chat_webhook():
             init_handlers()
         webhook_data = request.get_json()
         message_content = webhook_data.get('message', '')
-        sender_id = webhook_data.get('sender', 'web_user')
+        
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Agora, o sender_id é obrigatório.
+        sender_id = webhook_data.get('sender')
+        if not sender_id:
+            logger.error("Requisição recebida sem um 'sender_id'.")
+            return jsonify([{"text": "Erro de configuração: ID do remetente ausente."}]), 400
+        # --- FIM DA CORREÇÃO ---
+
         if not message_content:
             return jsonify([{"text": "Mensagem vazia."}]), 400
         available_products = Product.query.filter_by(is_active=True).all()
@@ -57,7 +65,7 @@ def web_chat_webhook():
             return jsonify([{"text": "Olá! No momento, estamos atualizando nosso catálogo. Volte em breve!"}]), 200
         customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
         if not customer:
-            customer = Customer(whatsapp_number=sender_id, name="Web Chat User")
+            customer = Customer(whatsapp_number=sender_id, name=f"Visitante_{sender_id[:6]}")
             db.session.add(customer)
             db.session.flush()
         customer.last_interaction = datetime.utcnow()
@@ -73,7 +81,7 @@ def web_chat_webhook():
         logger.info(f"Mensagem de {sender_id} processada com sucesso.")
         return jsonify([{"recipient_id": sender_id, "text": ai_response}]), 200
     except Exception as e:
-        logger.error(f"Erro ao processar mensagem do chat web para {sender_id}: {e}")
+        logger.error(f"Erro ao processar mensagem do chat web: {e}")
         db.session.rollback()
         return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
 
