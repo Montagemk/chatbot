@@ -23,7 +23,6 @@ class AIAgent:
         }
     
     def _make_api_call(self, messages: List[Dict], temperature: float = 0.75, max_tokens: int = 250) -> Optional[Dict[str, Any]]:
-        # Aumentamos a temperatura para dar mais "personalidade" e criatividade à IA
         if not self.api_key:
             logger.error("A chave da API Groq não está configurada.")
             return None
@@ -47,15 +46,23 @@ class AIAgent:
         try:
             context = self._build_conversation_context(conversation_history, limit=10)
             
-            # --- NOVO: FORNECE AS FERRAMENTAS PARA A IA ---
-            # Formata a lista de produtos de forma clara para a IA entender o que ela pode vender.
             product_context = "\n".join(
                 [f"- {p.name}: {p.description} (Link Gratuito: {'Sim' if p.free_group_link else 'Não'})" for p in available_products]
             )
             
             system_prompt = self._create_system_prompt()
             
+            # --- AJUSTE FEITO AQUI ---
+            # O prompt agora inclui a análise da intenção para dar mais contexto à IA
+            analysis_context = f"""
+            - Intenção do Cliente: {customer_analysis.get('intent', 'não identificada')}
+            - Sentimento: {customer_analysis.get('sentiment', 0.0)}
+            """
+
             user_prompt = f"""
+            ### ANÁLISE DO CLIENTE ###
+            {analysis_context}
+
             ### CONTEXTO DA CONVERSA ATUAL ###
             - Histórico da Conversa:
             {context}
@@ -96,9 +103,6 @@ class AIAgent:
         return "\n".join(context_lines)
 
     def _create_system_prompt(self) -> str:
-        """
-        Prompt de sistema totalmente reformulado para dar autonomia e princípios à IA.
-        """
         system_prompt = f"""
         ### SUA PERSONA: ALINE ###
         Você é a Aline, uma especialista em nossos produtos digitais. Você tem 27 anos, mora em Belo Horizonte e é mãe, então entende a correria e os desafios da vida real.
@@ -129,5 +133,55 @@ class AIAgent:
         
         return system_prompt.strip()
 
+    # --- FUNÇÃO COMPLETAMENTE REFEITA ---
     def analyze_customer_intent(self, message: str, conversation_history: List[Dict]) -> Dict[str, Any]:
-        return {"intent": "interesse_inicial"}
+        """
+        Analisa a mensagem do cliente para extrair intenção, sentimento e outras métricas,
+        fazendo uma chamada específica para a IA.
+        """
+        context = self._build_conversation_context(conversation_history, limit=5)
+        
+        analysis_prompt = f"""
+        Analise a última mensagem do cliente no contexto da conversa e retorne um JSON.
+
+        ### Histórico da Conversa
+        {context}
+
+        ### Última Mensagem do Cliente
+        "{message}"
+
+        ### Tarefa
+        Classifique a intenção do cliente, o sentimento (um número de -1.0 para muito negativo a 1.0 para muito positivo) e extraia até 3 palavras-chave.
+        As intenções possíveis são: 'interesse_inicial', 'duvida_produto', 'objecao_preco', 'pronto_para_comprar', 'desinteressado', 'saudacao'.
+
+        Responda apenas com o objeto JSON, nada mais. Exemplo de formato:
+        {{
+            "intent": "duvida_produto",
+            "sentiment": 0.3,
+            "keywords": ["preço", "parcelamento"]
+        }}
+        """
+        
+        try:
+            response = self._make_api_call(
+                messages=[{"role": "user", "content": analysis_prompt}],
+                temperature=0.1,  # Usamos baixa temperatura para tarefas de classificação, buscando precisão.
+                max_tokens=150
+            )
+
+            if response and 'choices' in response and response['choices']:
+                analysis_str = response['choices'][0].get('message', {}).get('content', '{}').strip()
+                
+                # Limpa o resultado para garantir que é um JSON válido
+                if analysis_str.startswith("```json"):
+                    analysis_str = analysis_str[7:-3].strip()
+
+                analysis_data = json.loads(analysis_str)
+                logger.info(f"Análise de intenção bem-sucedida: {analysis_data}")
+                return analysis_data
+            
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Não foi possível analisar a intenção do cliente: {e}")
+
+        # Retorno padrão em caso de qualquer falha
+        return {"intent": "interesse_inicial", "sentiment": 0.0, "keywords": []}
