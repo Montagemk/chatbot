@@ -40,14 +40,13 @@ class AIAgent:
             )
             return json.loads(response.text)
         except Exception as e:
-            logger.error(f"Erro na API do Gemini: {e}")
+            logger.error(f"Erro na API do Gemini ou ao decodificar JSON: {e}")
             return None
 
-    # --- FUNÇÃO PRINCIPAL REESCRITA PARA GERENCIAR O FUNIL ---
     def generate_response(self, customer: Customer, conversation_history: List[Dict]) -> Dict[str, Any]:
         default_error_response = {
-            "analysis": {"intent": "error"},
-            "response": "Desculpe, estou com um problema técnico. Tente novamente."
+            "analysis": {"intent": "error", "sentiment": 0.0},
+            "response": "Desculpe, estou com um problema técnico no momento. Pode tentar novamente em alguns minutos?"
         }
         
         try:
@@ -63,10 +62,10 @@ class AIAgent:
             structured_response = self._make_api_call(prompt_parts)
 
             if structured_response and 'analysis' in structured_response and 'response' in structured_response:
-                logger.info(f"Resposta gerada para estado '{funnel_state}': {structured_response['analysis']}")
+                logger.info(f"Resposta gerada para estado '{funnel_state}': {structured_response.get('analysis')}")
                 return structured_response
             
-            logger.error(f"A API do Gemini retornou um JSON inválido. Resposta: {structured_response}")
+            logger.error(f"A API do Gemini retornou um JSON inválido ou com estrutura incorreta. Resposta: {structured_response}")
             return default_error_response
             
         except Exception as e:
@@ -77,11 +76,11 @@ class AIAgent:
         system_prompt = """
         Você é Aline, a assistente inicial. Sua ÚNICA função é descobrir qual curso interessa ao cliente e transferi-lo para um especialista.
         1.  Apresente-se e ofereça os cursos disponíveis como botões de escolha no formato `[choice:Quero saber sobre NOME_DO_CURSO|ID_DO_PRODUTO]`.
-        2.  Quando o cliente escolher um curso (seja por texto ou clique), sua ÚNICA ação é responder com um JSON para fazer a transferência.
-        
+        2.  Quando o cliente escolher um curso (seja por texto ou clique), sua ÚNICA ação é responder com um JSON para fazer a transferência. A sua resposta de texto deve ser apenas a mensagem de transferência.
+
         Exemplo de JSON de transferência:
         {
-          "analysis": {"intent": "handoff_specialist"},
+          "analysis": {"intent": "handoff_specialist", "sentiment": 0.8},
           "response": "Ótima escolha! Estou te transferindo para o nosso especialista no curso de Copywriting, que vai tirar todas as suas dúvidas.",
           "funnel_state_update": "Specialist_Intro",
           "product_id_to_select": 123
@@ -92,10 +91,10 @@ class AIAgent:
         product_choices = "\\n".join([f"[choice:Quero saber sobre {p.name}|{p.id}]" for p in products])
 
         user_prompt = f"""
-        Histórico: {self._build_history_for_gemini(conversation_history)}
-        Cliente: "{customer_message}"
-        Sua tarefa: Ofereça os cursos abaixo como opções. Se o cliente já escolheu um, faça a transferência.
-        Cursos:
+        Histórico da conversa: {self._build_history_for_gemini(conversation_history)}
+        Última mensagem do Cliente: "{customer_message}"
+        Sua tarefa: Ofereça os cursos abaixo como opções. Se o cliente já escolheu um, faça a transferência conforme o exemplo.
+        Cursos disponíveis (formato Nome|ID):
         {product_choices}
         """
         return [system_prompt, user_prompt]
@@ -103,11 +102,10 @@ class AIAgent:
     def _get_specialist_prompt(self, customer: Customer, customer_message: str, conversation_history: List[Dict]):
         product = Product.query.get(customer.selected_product_id)
         if not product:
-            # Se por algum motivo o produto não for encontrado, volta para a Aline
             return self._get_aline_prompt(customer_message, conversation_history)
 
         specialist_persona = f"""
-        Você é {product.specialist_name or 'um especialista'}, consultor do produto '{product.name}'.
+        Você é {product.specialist_name or 'um especialista'}, consultor(a) do produto '{product.name}'.
         Sua prova social é: "{product.specialist_social_proof or 'Tenho muita experiência para te ajudar a ter resultados nesta área.'}"
         O número de WhatsApp para suporte humano é +5512996443780.
         """
@@ -118,10 +116,9 @@ class AIAgent:
             'Specialist_Coupon': f"Ofereça um cupom de 50 reais ('50TAO'), diga que é válido por apenas 10 minutos para criar urgência, e envie o link de pagamento com o botão `[botão:Comprar Agora com Desconto|{product.payment_link}]`. Atualize o estado para 'Specialist_Followup'.",
             'Specialist_Followup': "Pergunte se o cliente conseguiu finalizar a compra. Ofereça as opções `[choice:Sim, comprei!]` e `[choice:Não, tive um problema]`.",
             'Specialist_Success': "Dê os parabéns pela compra, informe que o acesso chegará por e-mail e dê um reforço positivo. Finalize a conversa. Atualize o estado para 'Completed'.",
-            'Specialist_Problem': f"Peça desculpas pelo problema e envie o link do WhatsApp para o suporte humano: `https://wa.me/5512996443780`. Use um botão `[botão:Falar com Suporte Humano|https://wa.me/5512996443780]`. Finalize a conversa. Atualize o estado para 'Completed'."
+            'Specialist_Problem': f"Peça desculpas pelo problema e envie o link do WhatsApp para o suporte humano com um botão `[botão:Falar com Suporte Humano|https://wa.me/5512996443780]`. Finalize a conversa. Atualize o estado para 'Completed'."
         }
         
-        # Lógica para lidar com a resposta do Followup
         current_state = customer.funnel_state
         if current_state == 'Specialist_Followup':
             if 'sim' in customer_message.lower() or 'comprei' in customer_message.lower():
