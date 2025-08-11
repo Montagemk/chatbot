@@ -94,6 +94,23 @@
             </div>
             
             <hr class="my-4">
+
+            <h5 class="mb-3"><i class="fas fa-user-tie"></i> Informações do Especialista (Funil)</h5>
+            <div class="form-text mb-3">Preencha estas informações para ativar o funil de vendas com o consultor especialista.</div>
+
+            <div class="mb-3">
+                <label for="specialist_name" class="form-label">Nome do Especialista</label>
+                <input type="text" class="form-control" id="specialist_name" name="specialist_name" value="{{ product.specialist_name or '' }}" placeholder="Ex: Carlos, o especialista em tráfego">
+            </div>
+            <div class="mb-3">
+                <label for="specialist_social_proof" class="form-label">Prova Social do Especialista</label>
+                <textarea class="form-control" id="specialist_social_proof" name="specialist_social_proof" rows="3" placeholder="Ex: Eu mesmo já ajudei mais de 50 alunos a dobrarem o faturamento com essas técnicas.">{{ product.specialist_social_proof or '' }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label for="testimonials_link" class="form-label">Link da Página de Depoimentos</label>
+                <input type="url" class="form-control" id="testimonials_link" name="testimonials_link" value="{{ product.testimonials_link or '' }}" placeholder="https://seu-site.com/depoimentos-produto">
+            </div>
+            <hr class="my-4">
             
             <h5 class="mb-3"><i class="fas fa-toggle-on"></i> Status do Produto</h5>
             
