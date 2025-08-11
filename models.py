@@ -22,18 +22,19 @@ class Product(db.Model):
     product_image_url = db.Column(db.String(500), nullable=True)
     free_group_link = db.Column(db.String(500), nullable=True)
     
+    # --- NOVOS CAMPOS ADICIONADOS AQUI ---
+    specialist_name = db.Column(db.String(100), nullable=True)
+    specialist_social_proof = db.Column(db.Text, nullable=True)
+    testimonials_link = db.Column(db.String(500), nullable=True)
+    # --- FIM DA ADIÇÃO ---
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
 
 class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    
-    # --- ALTERAÇÃO APLICADA AQUI ---
-    # Aumentamos o limite de 20 para 100 para acomodar os IDs únicos do site.
     whatsapp_number = db.Column(db.String(100), unique=True, nullable=False)
-    # --- FIM DA ALTERAÇÃO ---
-    
     name = db.Column(db.String(100))
     first_contact = db.Column(db.DateTime, default=datetime.utcnow)
     last_interaction = db.Column(db.DateTime, default=datetime.utcnow)
