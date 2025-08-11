@@ -22,11 +22,9 @@ class Product(db.Model):
     product_image_url = db.Column(db.String(500), nullable=True)
     free_group_link = db.Column(db.String(500), nullable=True)
     
-    # --- NOVOS CAMPOS ADICIONADOS AQUI ---
     specialist_name = db.Column(db.String(100), nullable=True)
     specialist_social_proof = db.Column(db.Text, nullable=True)
     testimonials_link = db.Column(db.String(500), nullable=True)
-    # --- FIM DA ADIÇÃO ---
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -41,6 +39,11 @@ class Customer(db.Model):
     total_interactions = db.Column(db.Integer, default=0)
     purchased = db.Column(db.Boolean, default=False)
     purchase_date = db.Column(db.DateTime)
+    
+    # --- NOVOS CAMPOS PARA O FUNIL DE VENDAS ---
+    funnel_state = db.Column(db.String(50), default='Aline_Welcome')
+    selected_product_id = db.Column(db.Integer, nullable=True)
+    # --- FIM DA ADIÇÃO ---
     
     # Relationships
     conversations = db.relationship('Conversation', backref='customer', lazy=True, cascade='all, delete-orphan')
