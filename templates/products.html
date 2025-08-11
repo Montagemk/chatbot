@@ -65,12 +65,20 @@
                     </div>
                 </div>
             </div>
+
             <div class="card-footer bg-white border-top-0">
-                <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-primary w-100">
-                    <i class="fas fa-edit"></i> Editar Status e Detalhes
-                </a>
+                <div class="d-grid gap-2 d-sm-flex">
+                    <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn btn-outline-primary w-100">
+                        <i class="fas fa-edit"></i> Editar
+                    </a>
+                    <form action="{{ url_for('delete_product', product_id=product.id) }}" method="POST" class="w-100" onsubmit="return confirm('Tem certeza que deseja desativar este produto?');">
+                        <button type="submit" class="btn btn-outline-danger w-100">
+                            <i class="fas fa-trash-alt"></i> Excluir
+                        </button>
+                    </form>
+                </div>
             </div>
-        </div>
+            </div>
     </div>
     {% endfor %}
 </div>
