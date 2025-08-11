@@ -53,39 +53,60 @@ def web_chat_webhook():
         customer.last_interaction = datetime.utcnow()
         customer.total_interactions = (customer.total_interactions or 0) + 1
         
+        incoming_conversation = Conversation(
+            customer_id=customer.id, message_type='incoming',
+            message_content=message_content
+        )
+        db.session.add(incoming_conversation)
+        db.session.commit()
+
         conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.desc()).limit(10).all()
         conversation_history.reverse()
         conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
         
-        # --- LÓGICA DO NOVO FUNIL DE VENDAS ---
-        # Passamos o cliente inteiro para a IA, para que ela saiba o estado do funil
         structured_response = ai_agent.generate_response(customer, conversation_dict)
         
         customer_analysis = structured_response.get("analysis", {})
         ai_response_text = structured_response.get("response", "Desculpe, não consegui processar sua mensagem.")
         
-        # Atualiza o estado do funil e o produto selecionado, se a IA os retornou
+        outgoing_conversation = Conversation(
+            customer_id=customer.id, message_type='outgoing', message_content=ai_response_text,
+            sentiment_score=customer_analysis.get('sentiment', 0.0)
+        )
+        db.session.add(outgoing_conversation)
+
         new_funnel_state = structured_response.get("funnel_state_update")
         if new_funnel_state:
             customer.funnel_state = new_funnel_state
 
         product_id_to_select = structured_response.get("product_id_to_select")
         if product_id_to_select:
-            customer.selected_product_id = product_id_to_select
-        # --- FIM DA LÓGICA DO FUNIL ---
-
-        incoming_conversation = Conversation(
-            customer_id=customer.id, message_type='incoming',
-            message_content=message_content, sentiment_score=customer_analysis.get('sentiment', 0.0)
-        )
-        outgoing_conversation = Conversation(
-            customer_id=customer.id, message_type='outgoing', message_content=ai_response_text
-        )
-        db.session.add_all([incoming_conversation, outgoing_conversation])
-        db.session.commit()
+            customer.selected_product_id = int(product_id_to_select)
         
+        db.session.commit()
+
+        final_response_text = ai_response_text
+
+        if new_funnel_state == 'Specialist_Intro':
+            logger.info(f"Handoff detectado. Gerando primeira mensagem do especialista para o cliente {customer.id}.")
+            specialist_response_dict = ai_agent.generate_response(customer, []) 
+            
+            specialist_text = specialist_response_dict.get("response", "Olá! Sou o especialista e estou aqui para ajudar.")
+            final_response_text += f"\n\n{specialist_text}"
+
+            specialist_outgoing = Conversation(
+                customer_id=customer.id, message_type='outgoing', message_content=specialist_text
+            )
+            db.session.add(specialist_outgoing)
+
+            final_state = specialist_response_dict.get("funnel_state_update")
+            if final_state:
+                customer.funnel_state = final_state
+            
+            db.session.commit()
+
         logger.info(f"Mensagem de {sender_id} (estado: {customer.funnel_state}) processada.")
-        return jsonify([{"recipient_id": sender_id, "text": ai_response_text}]), 200
+        return jsonify([{"recipient_id": sender_id, "text": final_response_text}]), 200
 
     except Exception as e:
         logger.error(f"Erro ao processar mensagem do chat web: {e}", exc_info=True)
@@ -160,7 +181,6 @@ def analytics():
     learning_stats = learner.get_learning_statistics()
     # Adicione a lógica para buscar daily_sales e avg_sentiment se necessário para o template
     return render_template('analytics.html', learning_stats=learning_stats)
-
 
 @app.route('/api/learning_stats')
 def api_learning_stats():
