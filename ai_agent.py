@@ -32,8 +32,7 @@ class AIAgent:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
-        # --- ARQUITETURA DE MÁQUINA DE ESTADOS ATUALIZADA ---
-        # Adicionámos os novos estados de processamento ('awaiting_...')
+        # --- ARQUITETURA DE MÁQUINA DE ESTADOS COMPLETA ---
         self.state_handlers = {
             'start': self._handle_start,
             'awaiting_choice': self._handle_awaiting_choice,
@@ -42,7 +41,9 @@ class AIAgent:
             'get_price': self._handle_get_price,
             'whatsapp_redirect': self._handle_whatsapp_redirect,
             'specialist_intro': self._handle_specialist_intro,
+            'awaiting_offer_choice': self._handle_awaiting_offer_choice, # <-- Adicionado
             'specialist_offer': self._handle_specialist_offer,
+            'awaiting_purchase_outcome': self._handle_awaiting_purchase_outcome, # <-- Adicionado
             'specialist_followup': self._handle_specialist_followup,
             'specialist_success': self._handle_specialist_success,
             'specialist_problem': self._handle_specialist_problem,
@@ -71,12 +72,10 @@ class AIAgent:
         
         return handler(customer, conversation_history, tactic)
 
-    # --- NOVOS HANDLERS DE PROCESSAMENTO ('Controladores de Tráfego') ---
+    # --- HANDLERS DE PROCESSAMENTO ('Controladores de Tráfego') ---
 
     def _handle_awaiting_choice(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Controlador que direciona o fluxo após a escolha inicial do utilizador."""
         last_message = history[-1]['message_content'].lower() if history else ""
-
         if "ver cursos" in last_message:
             return self._handle_list_products(customer, history, tactic)
         elif "preço" in last_message or "valor" in last_message:
@@ -87,35 +86,43 @@ class AIAgent:
             return self._handle_default(customer, history, tactic)
 
     def _handle_awaiting_product_selection(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Controlador que processa a escolha do produto."""
         last_message = history[-1]['message_content'] if history else ""
-        
         try:
-            # Extrai o ID do produto da mensagem (ex: "Quero saber sobre o curso 5")
             product_id = int(last_message.split(' ')[-1])
-            
-            # Valida se o produto existe
             product = Product.query.get(product_id)
             if product:
-                # Se o produto é válido, não devolvemos uma mensagem, mas sim instruções
-                # para o routes.py atualizar a base de dados e chamar o próximo handler.
-                return {
-                    "text": None, # Sem texto, pois é uma ação interna
-                    "buttons": [],
-                    "product_id_to_select": product_id, # Instrução para routes.py
-                    "funnel_state_update": "specialist_intro" # Próximo estado
-                }
+                return { "text": None, "buttons": [], "product_id_to_select": product_id, "funnel_state_update": "specialist_intro" }
         except (ValueError, IndexError):
             logger.warning(f"Não foi possível extrair o ID do produto da mensagem: '{last_message}'")
-        
-        # Se algo falhar, volta a listar os produtos
         return self._handle_list_products(customer, history, tactic)
 
+    def _handle_awaiting_offer_choice(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """NOVO: Controlador que processa a escolha após a intro do especialista."""
+        last_message = history[-1]['message_content'].lower() if history else ""
+        if "oferta" in last_message:
+            return self._handle_specialist_offer(customer, history, tactic)
+        else:
+            # Se o utilizador escrever outra coisa, podemos ser proativos.
+            return {
+                "text": "Entendido. Quando estiver pronto para ver a oferta especial que preparei para si, é só avisar!",
+                "buttons": [{"label": "Estou pronto, quero a oferta!", "value": "Quero a oferta"}],
+                "funnel_state_update": "awaiting_offer_choice"
+            }
 
-    # --- MÉTODOS HANDLER PARA CADA ESTADO DO FUNIL ---
+    def _handle_awaiting_purchase_outcome(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """NOVO: Controlador que processa o resultado após a apresentação da oferta."""
+        last_message = history[-1]['message_content'].lower() if history else ""
+        if "comprei" in last_message:
+            return self._handle_specialist_success(customer, history, tactic)
+        elif "problema" in last_message:
+            return self._handle_specialist_problem(customer, history, tactic)
+        else:
+            # Qualquer outra mensagem é tratada como uma objeção/dúvida.
+            return self._handle_specialist_followup(customer, history, tactic)
+
+    # --- MÉTODOS HANDLER DE APRESENTAÇÃO ---
 
     def _handle_start(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Gera a mensagem de boas-vindas inicial com as primeiras opções."""
         return {
             "text": "Olá! Sou o assistente virtual da Comunidade ATP. Como posso te ajudar hoje?",
             "buttons": [
@@ -127,13 +134,10 @@ class AIAgent:
         }
 
     def _handle_list_products(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Busca os produtos ativos no banco de dados e os exibe como botões."""
         products = Product.query.filter_by(is_active=True).all()
         if not products:
             return self._handle_default(customer, history, tactic, error="No momento, estamos atualizando nosso catálogo.")
-
         product_buttons = [{"label": p.name, "value": f"Quero saber sobre o curso {p.id}"} for p in products]
-        
         return {
             "text": "Ótima escolha! Temos os melhores especialistas do mercado. Qual destes cursos te interessa mais?",
             "buttons": product_buttons,
@@ -141,8 +145,6 @@ class AIAgent:
         }
         
     def _handle_get_price(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Informa o preço da comunidade e oferece os próximos passos."""
-        # Nota: Idealmente, o preço poderia vir de uma configuração geral, mas por agora está fixo.
         return {
             "text": "O acesso à Comunidade ATP com mais de 800 cursos é vitalício, por um pagamento único de R$97. O que você gostaria de fazer?",
             "buttons": [
@@ -153,7 +155,6 @@ class AIAgent:
         }
 
     def _handle_whatsapp_redirect(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Confirma a intenção de ir para o WhatsApp e fornece o botão."""
         return {
             "text": "Claro! Para falar com um dos nossos consultores humanos, basta clicar no botão abaixo.",
             "buttons": [
@@ -163,16 +164,11 @@ class AIAgent:
         }
 
     def _handle_specialist_intro(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Apresenta o especialista do produto selecionado."""
-        # Se esta função for chamada diretamente pelo routes.py após uma atualização,
-        # o customer.selected_product_id estará atualizado.
         product = Product.query.get(customer.selected_product_id)
         if not product:
             return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
-
         specialist_name = product.specialist_name or "um especialista"
         social_proof = product.specialist_social_proof or "posso te ajudar a alcançar seus objetivos."
-
         return {
             "text": f"Perfeito! Eu sou {specialist_name}, especialista no curso '{product.name}'. {social_proof}\n\nO que você gostaria de ver primeiro?",
             "buttons": [
@@ -180,12 +176,10 @@ class AIAgent:
                 {"label": "Ver Depoimentos", "value": f"link:{product.testimonials_link}"},
                 {"label": "Gostei, quero a oferta!", "value": "Quero a oferta"}
             ],
-            # O próximo estado lógico será processar a escolha sobre a oferta/aulas
             "funnel_state_update": "awaiting_offer_choice" 
         }
 
     def _handle_specialist_offer(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        # (Este handler e os seguintes permaneceriam muito semelhantes, pois já são estados de "Apresentação")
         product = Product.query.get(customer.selected_product_id)
         if not product:
             return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
@@ -206,17 +200,46 @@ class AIAgent:
             "funnel_state_update": "awaiting_purchase_outcome"
         }
 
-    # ... (Os handlers _handle_specialist_followup, _handle_specialist_success, etc. continuariam aqui) ...
-    # Por agora, vamos simplificar e adicionar os que faltam
     def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        return {"text": "Follow-up", "buttons": [], "funnel_state_update": "completed"}
+        """MELHORADO: Lida com objeções usando a tática definida pelo ReinforcementLearner."""
+        product = Product.query.get(customer.selected_product_id)
+        if not product:
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
+        prompt = f"""
+        Você é um especialista em vendas do produto '{product.name}'. O cliente tem uma dúvida ou objeção.
+        O histórico da conversa é: {history}.
+        A sua tática para quebrar esta objeção é: '{tactic}'.
+        Use esta tática para criar uma resposta empática e persuasiva.
+        Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
+        """
+        response_json = self._make_api_call(prompt)
+        followup_text = response_json.get("text", "Entendo a sua dúvida. Deixe-me explicar melhor...")
+        return {
+            "text": followup_text,
+            "buttons": [
+                {"label": "Entendi, quero comprar", "value": f"link:{product.payment_link}"},
+                {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+            ],
+            "funnel_state_update": "awaiting_purchase_outcome"
+        }
         
     def _handle_specialist_success(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        return {"text": "Sucesso!", "buttons": [], "funnel_state_update": "completed"}
+        """MELHORADO: Mensagem de parabéns após a compra."""
+        return {
+            "text": "Parabéns pela sua decisão e seja muito bem-vindo(a) à comunidade! Tenho a certeza de que vai aproveitar ao máximo. O seu acesso será enviado para o seu e-mail em instantes.",
+            "buttons": [],
+            "funnel_state_update": "completed"
+        }
 
     def _handle_specialist_problem(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        return {"text": "Problema", "buttons": [], "funnel_state_update": "completed"}
-
+        """MELHORADO: Lida com problemas na compra, direcionando para o suporte."""
+        return {
+            "text": "Sem problemas, acontece! Para que eu possa te ajudar a finalizar a compra, por favor, clique no botão abaixo e fale diretamente com a nossa equipe de suporte no WhatsApp.",
+            "buttons": [
+                {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+            ],
+            "funnel_state_update": "completed"
+        }
 
     def _handle_default(self, customer: Customer, history: List[Dict], tactic: str, error: str = None) -> Dict[str, Any]:
         """Resposta padrão para situações não previstas ou erros."""
