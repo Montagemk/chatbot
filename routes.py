@@ -11,8 +11,6 @@ from functools import wraps
 
 logger = logging.getLogger(__name__)
 
-# --- Inicialização dos Handlers ---
-# Mantemos a mesma lógica para inicializar a IA e o Learner
 ai_agent = None
 learner = None
 
@@ -34,16 +32,10 @@ def init_handlers():
     if learner is None:
         learner = ReinforcementLearner()
 
-# --- ROTA PRINCIPAL DO CHATBOT (ATUALIZADA) ---
 @app.route('/webhook', methods=['POST'])
 @require_api_key
 def web_chat_webhook():
-    """
-    Esta função foi reestruturada para um fluxo mais limpo e para lidar com respostas
-    estruturadas (texto + botões), além de integrar a escolha dinâmica de táticas de venda.
-    """
     try:
-        # 1. Inicialização e Receção de Dados
         if ai_agent is None: init_handlers()
         webhook_data = request.get_json()
         message_content = webhook_data.get('message', '')
@@ -52,10 +44,8 @@ def web_chat_webhook():
         if not sender_id or not message_content:
             return jsonify([{"text": "Dados da requisição incompletos."}]), 400
 
-        # 2. Gestão do Cliente e Histórico
         customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
         if not customer:
-            # O estado padrão 'start' é definido no models.py
             customer = Customer(whatsapp_number=sender_id, name=f"Visitante_{sender_id[:6]}")
             db.session.add(customer)
             db.session.flush()
@@ -63,58 +53,57 @@ def web_chat_webhook():
         customer.last_interaction = datetime.utcnow()
         customer.total_interactions = (customer.total_interactions or 0) + 1
         
-        # Salva a mensagem do cliente ANTES de gerar a resposta
         incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
         db.session.add(incoming_conversation)
         db.session.commit()
 
-        # Obtém o histórico recente para dar contexto à IA
         conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.desc()).limit(10).all()
-        conversation_history.reverse() # Coloca na ordem cronológica correta
+        conversation_history.reverse()
         conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
         
-        # 3. LÓGICA DE ESCOLHA DE TÁTICA (aqui entra o RL)
-        # Por enquanto, vamos manter simples, mas a estrutura está pronta.
-        # No futuro, o `learner` será chamado aqui para decidir a tática.
-        tactic_to_use = "default" # Placeholder para a tática
-        
-        # Exemplo de como seria com o RL:
-        # if customer.funnel_state == 'awaiting_objection':
-        #     tactic_to_use = learner.get_best_tactic(customer, conversation_dict)
-        # else:
-        #     product = Product.query.get(customer.selected_product_id)
-        #     tactic_to_use = product.sales_approach if product else 'consultivo'
+        tactic_to_use = "default"
 
-        # 4. Geração da Resposta pela IA
-        # A IA agora recebe a tática a ser usada
-        structured_response = ai_agent.generate_response(customer, conversation_dict, tactic_to_use)
-        
-        # 5. Processamento da Resposta Estruturada
-        ai_response_text = structured_response.get("text", "Desculpe, não entendi. Pode reformular?")
-        response_buttons = structured_response.get("buttons", []) # EXTRAI A LISTA DE BOTÕES
-        new_funnel_state = structured_response.get("funnel_state_update")
-        product_id_to_select = structured_response.get("product_id_to_select")
-        
-        # 6. Atualização do Estado e da Conversa no Banco de Dados
-        outgoing_conversation = Conversation(
-            customer_id=customer.id,
-            message_type='outgoing',
-            message_content=ai_response_text,
-            ai_strategy=tactic_to_use # Salvamos a tática que foi usada
-        )
-        db.session.add(outgoing_conversation)
+        # --- LÓGICA DE TRANSIÇÃO INTELIGENTE ---
+        # A IA pode precisar de realizar várias ações internas antes de responder.
+        # Este loop garante que o processo continue até que haja uma mensagem para o utilizador.
+        while True:
+            structured_response = ai_agent.generate_response(customer, conversation_dict, tactic_to_use)
+            ai_response_text = structured_response.get("text")
+            
+            # Atualiza o estado do cliente com base na resposta da IA
+            new_funnel_state = structured_response.get("funnel_state_update")
+            product_id_to_select = structured_response.get("product_id_to_select")
+            if new_funnel_state:
+                customer.funnel_state = new_funnel_state
+            if product_id_to_select:
+                customer.selected_product_id = int(product_id_to_select)
 
-        if new_funnel_state:
-            customer.funnel_state = new_funnel_state
-        if product_id_to_select:
-            customer.selected_product_id = int(product_id_to_select)
+            # Se a resposta tiver texto, saímos do loop para enviá-la.
+            if ai_response_text is not None:
+                break
+            
+            # Se não houver texto, foi uma ação interna. O loop continua com o novo estado.
+            logger.info(f"Ação interna executada para o cliente {customer.id}. Novo estado: {customer.funnel_state}. Re-executando o agente.")
+
+        # --- FIM DA LÓGICA DE TRANSIÇÃO ---
+
+        response_buttons = structured_response.get("buttons", [])
         
+        # Só guarda a conversa de saída se houver conteúdo de texto
+        if ai_response_text:
+            outgoing_conversation = Conversation(
+                customer_id=customer.id,
+                message_type='outgoing',
+                message_content=ai_response_text,
+                ai_strategy=tactic_to_use
+            )
+            db.session.add(outgoing_conversation)
+
+        # Faz o commit de todas as alterações (estado do cliente, nova conversa, etc.)
         db.session.commit()
 
-        # 7. Envio da Resposta Final para a Interface (com botões)
         logger.info(f"Mensagem de {sender_id} (estado: {customer.funnel_state}) processada. Enviando texto e {len(response_buttons)} botões.")
         
-        # A resposta JSON agora contém uma chave "buttons"
         return jsonify([{
             "recipient_id": sender_id,
             "text": ai_response_text,
@@ -128,9 +117,7 @@ def web_chat_webhook():
 
 #
 # --- O RESTANTE DAS ROTAS PERMANECE IGUAL ---
-# Nenhuma alteração necessária no dashboard, analytics, etc.
 #
-
 @app.route('/')
 def dashboard():
     # ... código inalterado ...
@@ -161,7 +148,6 @@ def simulate_sale():
         if not customer_id: return jsonify({"error": "customer_id é obrigatório"}), 400
         customer = Customer.query.get(customer_id)
         if not customer: return jsonify({"error": "Cliente não encontrado"}), 404
-        # A lógica aqui pode ser refinada para usar o `selected_product_id` do cliente
         product = Product.query.get(customer.selected_product_id) if customer.selected_product_id else Product.query.filter_by(is_active=True).first()
         if not product: return jsonify({"error": "Nenhum produto ativo encontrado para simular a venda"}), 404
         latest_conv = Conversation.query.filter_by(customer_id=customer_id, message_type='outgoing').order_by(Conversation.timestamp.desc()).first()
