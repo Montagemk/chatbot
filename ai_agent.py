@@ -6,12 +6,14 @@ from typing import Dict, List, Any, Optional
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig, HarmCategory, HarmBlockThreshold
 
-from models import Product, Customer
+# Importamos os modelos para que o Agente possa consultar a base de dados diretamente
+from models import Product, Customer 
 
 logger = logging.getLogger(__name__)
 
 class AIAgent:
     def __init__(self):
+        # Configuração da API do Gemini (inalterada)
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             logger.error("A chave da API do Google não está configurada.")
@@ -21,7 +23,7 @@ class AIAgent:
         self.model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
         self.generation_config = GenerationConfig(
             response_mime_type="application/json",
-            temperature=0.75
+            temperature=0.7 # Temperatura um pouco mais baixa para mais consistência
         )
         self.safety_settings = {
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -30,110 +32,185 @@ class AIAgent:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
-    def _make_api_call(self, prompt_parts: List[Any]) -> Optional[Dict[str, Any]]:
+        # --- ARQUITETURA DE MÁQUINA DE ESTADOS ---
+        # Mapeia cada estado do funil a uma função específica que o trata.
+        # Isto torna o código muito mais limpo e extensível.
+        self.state_handlers = {
+            'start': self._handle_start,
+            'list_products': self._handle_list_products,
+            'specialist_intro': self._handle_specialist_intro,
+            'specialist_offer': self._handle_specialist_offer,
+            'specialist_followup': self._handle_specialist_followup,
+            'specialist_success': self._handle_specialist_success,
+            'specialist_problem': self._handle_specialist_problem,
+            'default': self._handle_default
+        }
+
+    def _make_api_call(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """Função simplificada para fazer a chamada à API."""
         try:
+            # A API do Gemini pode receber uma string simples diretamente.
             response = self.model.generate_content(
-                prompt_parts,
+                prompt,
                 generation_config=self.generation_config,
                 safety_settings=self.safety_settings
             )
             return json.loads(response.text)
         except Exception as e:
             logger.error(f"Erro na API do Gemini ou ao decodificar JSON: {e}")
+            # Retorna um JSON de erro padrão
+            return json.loads('{"text": "Desculpe, tive um problema para processar sua solicitação. Poderia tentar de novo?", "buttons": []}')
+
+    def generate_response(self, customer: Customer, conversation_history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """
+        Função principal que atua como um 'dispatcher'.
+        Ela direciona a chamada para a função correta com base no estado do funil do cliente.
+        """
+        # Obtém o estado atual do funil do cliente.
+        current_state = customer.funnel_state or 'start'
+        
+        # Encontra a função handler correspondente ao estado atual.
+        # Se o estado não for encontrado, usa o handler padrão.
+        handler = self.state_handlers.get(current_state, self._handle_default)
+        
+        logger.info(f"Cliente {customer.id} no estado '{current_state}'. A usar o handler: {handler.__name__}")
+        
+        # Executa a função handler para gerar a resposta estruturada.
+        return handler(customer, conversation_history, tactic)
+
+    # --- MÉTODOS HANDLER PARA CADA ESTADO DO FUNIL ---
+
+    def _handle_start(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Gera a mensagem de boas-vindas inicial com as primeiras opções."""
+        return {
+            "text": "Olá! Sou o assistente virtual da Comunidade ATP. Como posso te ajudar hoje?",
+            "buttons": [
+                {"label": "Ver Cursos", "value": "Ver Cursos"},
+                {"label": "Qual o Preço?", "value": "Qual o valor da comunidade?"},
+                {"label": "WhatsApp", "value": "Quero falar no WhatsApp"}
+            ],
+            # Se o cliente escolher "Ver Cursos", o próximo estado será 'list_products'
+            "funnel_state_update": "awaiting_choice" 
+        }
+
+    def _handle_list_products(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Busca os produtos ativos no banco de dados e os exibe como botões."""
+        products = Product.query.filter_by(is_active=True).all()
+        if not products:
             return {
-                "analysis": {"intent": "api_error", "sentiment": 0.0},
-                "response": "Desculpe, tive um problema para processar sua solicitação. Poderia tentar de novo?"
+                "text": "No momento, estamos atualizando nosso catálogo de cursos. Por favor, volte mais tarde!",
+                "buttons": [],
+                "funnel_state_update": "start"
             }
 
-    def generate_response(self, customer: Customer, conversation_history: List[Dict]) -> Dict[str, Any]:
-        default_error_response = {
-            "analysis": {"intent": "internal_error", "sentiment": 0.0},
-            "response": "Desculpe, ocorreu um erro interno. Por favor, tente novamente."
-        }
+        product_buttons = [{"label": p.name, "value": f"Quero saber sobre o curso {p.id}"} for p in products]
         
-        try:
-            # O Agente agora sempre atua como especialista.
-            prompt_parts = self._get_specialist_prompt(customer, conversation_history)
-            structured_response = self._make_api_call(prompt_parts)
+        return {
+            "text": "Ótima escolha! Temos os melhores especialistas do mercado. Qual destes cursos te interessa mais?",
+            "buttons": product_buttons,
+            "funnel_state_update": "awaiting_product_selection"
+        }
 
-            if structured_response and 'analysis' in structured_response and 'response' in structured_response:
-                logger.info(f"Resposta gerada para estado '{customer.funnel_state}': {structured_response.get('analysis')}")
-                return structured_response
-            
-            logger.error(f"A API do Gemini retornou um JSON inválido. Resposta: {structured_response}")
-            return default_error_response
-            
-        except Exception as e:
-            logger.error(f"Erro em generate_response: {e}", exc_info=True)
-            return default_error_response
-
-    def _get_specialist_prompt(self, customer: Customer, conversation_history: List[Dict]):
-        last_message = conversation_history[-1]['message_content'] if conversation_history else ''
+    def _handle_specialist_intro(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Apresenta o especialista do produto selecionado."""
         product = Product.query.get(customer.selected_product_id)
-        
         if not product:
-            return ["Responda apenas com este JSON: {\"analysis\":{\"intent\":\"error\"}, \"response\":\"Erro: produto não encontrado.\"}"]
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
 
-        specialist_persona = f"""
-        Você é {product.specialist_name or 'um especialista'}, consultor(a) do produto '{product.name}'.
-        Sua prova social é: "{product.specialist_social_proof or 'Tenho muita experiência para te ajudar a ter resultados nesta área.'}"
-        O número de WhatsApp para suporte humano é +5512996443780.
+        specialist_name = product.specialist_name or "um especialista"
+        social_proof = product.specialist_social_proof or "posso te ajudar a alcançar seus objetivos."
+
+        return {
+            "text": f"Olá! Eu sou {specialist_name}, especialista no curso '{product.name}'. {social_proof}",
+            "buttons": [
+                {"label": "Acessar Aulas Gratuitas", "value": f"link:{product.free_group_link}"},
+                {"label": "Ver Depoimentos", "value": f"link:{product.testimonials_link}"},
+                {"label": "Gostei, quero a oferta!", "value": "Quero a oferta"}
+            ],
+            "funnel_state_update": "specialist_offer"
+        }
+
+    def _handle_specialist_offer(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Apresenta a oferta do produto com o cupom e link de pagamento."""
+        product = Product.query.get(customer.selected_product_id)
+        if not product:
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
+
+        # Aqui, a IA poderia usar o 'tactic' para variar a forma da oferta.
+        # Ex: se a tática for 'escassez', o texto poderia ser mais urgente.
+        prompt = f"""
+        Você é um vendedor especialista. Crie uma mensagem curta e poderosa oferecendo o produto '{product.name}' por R${product.price}.
+        Mencione que o cupom '50TAO' dá 50% de desconto, mas é válido por apenas 10 minutos.
+        Seja direto e persuasivo.
+        Gere APENAS o texto da oferta em uma única string dentro de um JSON como este: {{"text": "sua_resposta_aqui"}}
         """
+        response_json = self._make_api_call(prompt)
+        offer_text = response_json.get("text", f"Aproveite a oferta especial para o curso {product.name}!")
+        
+        return {
+            "text": offer_text,
+            "buttons": [
+                {"label": "✅ Comprar com Desconto", "value": f"link:{product.payment_link}"},
+                {"label": "Tive um problema", "value": "Tive um problema na compra"},
+                {"label": "Comprei!", "value": "Já comprei!"}
+            ],
+            "funnel_state_update": "specialist_followup"
+        }
 
-        funnel_instructions = {
-            'Specialist_Intro': (
-                f"Sua primeira ação. Apresente-se com sua persona e prova social. "
-                f"Sua resposta deve ter duas partes separadas por '%%DELAY%%'. "
-                f"Primeiro, ofereça o link das aulas gratuitas com o botão `[botão:Acessar Aulas Gratuitas|{product.free_group_link}]`. "
-                f"Depois do '%%DELAY%%', ofereça o link de depoimentos com o botão `[botão:Ver o que os alunos dizem|{product.testimonials_link}]`. "
-                f"Finalmente, ofereça as opções `[choice:Gostei, quero saber mais!]` e `[choice:Tenho uma dúvida]`. "
-                f"Atualize o estado para 'Specialist_Offer'."
-            ),
-            'Specialist_Offer': (
-                f"O cliente quer continuar. Ofereça o cupom '50TAO' (válido por 10 minutos) e o link de pagamento. "
-                f"Formate sua resposta exatamente assim: primeiro o texto, depois o cupom em uma nova linha, depois o aviso de validade e por fim o botão de pagamento `[botão:Comprar Agora com Desconto|{product.payment_link}]`. "
-                f"Ofereça as opções `[choice:Consegui comprar!]` e `[choice:Tive um problema]`. "
-                f"Atualize o estado para 'Specialist_Followup'."
-            ),
-            'Specialist_Followup': ( # Este estado agora é o ponto de partida para o follow-up
-                "O cliente indicou que teve um problema ou não comprou. "
-                "Inicie um atendimento mais livre e persuasivo. Seu objetivo é entender a principal objeção (preço? tempo? confiança?) e tentar contorná-la com base nos benefícios do produto. "
-                "Seja empático. No final, ofereça as opções `[choice:Entendi, vou comprar agora]` e `[choice:Ainda não sei...]`."
-                "Se ele escolher comprar, atualize o estado para 'Specialist_Offer'. Se não, para 'Specialist_FinalAttempt'."
-            ),
-            'Specialist_FinalAttempt': (
-                f"Esta é a última tentativa. O cliente ainda está indeciso. "
-                f"Diga que entende a dúvida dele, mas que a oportunidade é única. "
-                f"Ofereça o botão para falar com o suporte humano no WhatsApp: `[botão:Falar com Suporte Humano|https://wa.me/5512996443780]`. "
-                f"Atualize o estado para 'Completed'."
-            ),
-            'Specialist_Success': "Dê os parabéns pela compra, informe que o acesso chegará por e-mail e dê um reforço positivo. Finalize a conversa. Atualize o estado para 'Completed'."
+    def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Lida com objeções usando a tática definida pelo ReinforcementLearner."""
+        product = Product.query.get(customer.selected_product_id)
+        if not product:
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
+
+        # O 'tactic' vindo do routes.py (e definido pelo Learner) é crucial aqui.
+        prompt = f"""
+        Você é um especialista em vendas do produto '{product.name}'. O cliente demonstrou uma objeção ou problema.
+        O histórico da conversa é: {history}.
+        A sua tática para quebrar esta objeção é: '{tactic}'.
+        Use esta tática para criar uma resposta empática e persuasiva, tentando resolver a dúvida do cliente.
+        No final, incentive-o a tentar comprar novamente.
+        Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
+        """
+        response_json = self._make_api_call(prompt)
+        followup_text = response_json.get("text", "Entendo. Me diga, qual foi a sua principal dúvida para que eu possa te ajudar?")
+
+        return {
+            "text": followup_text,
+            "buttons": [
+                {"label": "Vou tentar comprar de novo", "value": f"link:{product.payment_link}"},
+                {"label": "Ainda tenho dúvidas", "value": "Ainda estou com dúvidas"},
+                {"label": "Falar com humano", "value": "Quero falar no WhatsApp"}
+            ],
+            "funnel_state_update": "specialist_followup"
         }
         
-        current_state = customer.funnel_state
-        # Lógica para tratar a resposta do cliente e decidir o próximo passo
-        if current_state == 'Specialist_Offer':
-            # Se o cliente demonstrou interesse após a intro, vai para a oferta.
-            pass # A instrução já é a correta
-        elif 'problema' in last_message.lower() or 'não' in last_message.lower():
-            current_state = 'Specialist_Followup'
-        elif 'comprei' in last_message.lower() or 'sim' in last_message.lower():
-            current_state = 'Specialist_Success'
+    def _handle_specialist_success(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Mensagem de parabéns após a compra."""
+        return {
+            "text": "Parabéns pela excelente decisão! Tenho a certeza de que você vai ter ótimos resultados. O acesso ao curso será enviado para o seu e-mail em instantes.",
+            "buttons": [],
+            "funnel_state_update": "completed"
+        }
 
-        current_instruction = funnel_instructions.get(current_state, funnel_instructions['Specialist_Intro'])
+    def _handle_specialist_problem(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Lida com problemas na compra, direcionando para o suporte."""
+        return {
+            "text": "Sem problemas, estou aqui para ajudar! Para resolvermos isso o mais rápido possível, por favor, clique no botão abaixo para falar com nossa equipe de suporte no WhatsApp.",
+            "buttons": [
+                {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+            ],
+            "funnel_state_update": "completed"
+        }
 
-        system_prompt = f"""
-        {specialist_persona}
-        Siga a instrução para a sua etapa atual do funil: "{current_instruction}"
-        REGRA CRÍTICA: Sua resposta DEVE SER um único objeto JSON válido, sem markdown.
-        O JSON deve conter "analysis" (com "intent" e "sentiment"), "response" (a mensagem para o cliente), e "funnel_state_update" (com o próximo estado do funil).
-        """
-        user_prompt = f"""
-        Histórico: {self._build_history_for_gemini(conversation_history)}
-        Cliente: "{last_message}"
-        """
-        return [system_prompt, user_prompt]
-
-    def _build_history_for_gemini(self, conversation_history: List[Dict], limit: int = 6) -> str:
-        if not conversation_history: return "Início da conversa."
-        return "\n".join([f"{'Cliente' if m['message_type'] == 'incoming' else 'Assistente'}: {m['message_content']}" for m in conversation_history[-limit:]])
+    def _handle_default(self, customer: Customer, history: List[Dict], tactic: str, error: str = None) -> Dict[str, Any]:
+        """Resposta padrão para situações não previstas ou erros."""
+        error_message = error or "Não entendi muito bem. Como posso te ajudar?"
+        return {
+            "text": error_message,
+            "buttons": [
+                {"label": "Ver Cursos", "value": "Ver Cursos"},
+                {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+            ],
+            "funnel_state_update": "start" # Reinicia o fluxo em caso de erro
+        }
