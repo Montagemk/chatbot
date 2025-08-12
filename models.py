@@ -40,10 +40,12 @@ class Customer(db.Model):
     purchased = db.Column(db.Boolean, default=False)
     purchase_date = db.Column(db.DateTime)
     
-    # --- NOVOS CAMPOS PARA O FUNIL DE VENDAS ---
-    funnel_state = db.Column(db.String(50), default='Aline_Welcome')
+    # --- CAMPO ATUALIZADO ---
+    # O valor padrão agora reflete o novo fluxo inicial do funil.
+    funnel_state = db.Column(db.String(50), default='start') 
+    # --- FIM DA ATUALIZAÇÃO ---
+
     selected_product_id = db.Column(db.Integer, nullable=True)
-    # --- FIM DA ADIÇÃO ---
     
     # Relationships
     conversations = db.relationship('Conversation', backref='customer', lazy=True, cascade='all, delete-orphan')
@@ -55,7 +57,7 @@ class Conversation(db.Model):
     message_type = db.Column(db.String(20), nullable=False)
     message_content = db.Column(db.Text, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    ai_strategy = db.Column(db.String(100))
+    ai_strategy = db.Column(db.String(100)) # Este campo será preenchido pelo RL
     sentiment_score = db.Column(db.Float)
     
 class Sale(db.Model):
