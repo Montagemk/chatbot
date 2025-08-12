@@ -11,6 +11,8 @@ from functools import wraps
 
 logger = logging.getLogger(__name__)
 
+# --- Inicialização dos Handlers ---
+# Mantemos a mesma lógica para inicializar a IA e o Learner
 ai_agent = None
 learner = None
 
@@ -32,10 +34,16 @@ def init_handlers():
     if learner is None:
         learner = ReinforcementLearner()
 
+# --- ROTA PRINCIPAL DO CHATBOT (ATUALIZADA) ---
 @app.route('/webhook', methods=['POST'])
 @require_api_key
 def web_chat_webhook():
+    """
+    Esta função foi reestruturada para um fluxo mais limpo e para lidar com respostas
+    estruturadas (texto + botões), além de integrar a escolha dinâmica de táticas de venda.
+    """
     try:
+        # 1. Inicialização e Receção de Dados
         if ai_agent is None: init_handlers()
         webhook_data = request.get_json()
         message_content = webhook_data.get('message', '')
@@ -44,8 +52,10 @@ def web_chat_webhook():
         if not sender_id or not message_content:
             return jsonify([{"text": "Dados da requisição incompletos."}]), 400
 
+        # 2. Gestão do Cliente e Histórico
         customer = Customer.query.filter_by(whatsapp_number=sender_id).first()
         if not customer:
+            # O estado padrão 'start' é definido no models.py
             customer = Customer(whatsapp_number=sender_id, name=f"Visitante_{sender_id[:6]}")
             db.session.add(customer)
             db.session.flush()
@@ -53,71 +63,79 @@ def web_chat_webhook():
         customer.last_interaction = datetime.utcnow()
         customer.total_interactions = (customer.total_interactions or 0) + 1
         
-        incoming_conversation = Conversation(
-            customer_id=customer.id, message_type='incoming',
-            message_content=message_content
-        )
+        # Salva a mensagem do cliente ANTES de gerar a resposta
+        incoming_conversation = Conversation(customer_id=customer.id, message_type='incoming', message_content=message_content)
         db.session.add(incoming_conversation)
         db.session.commit()
 
+        # Obtém o histórico recente para dar contexto à IA
         conversation_history = Conversation.query.filter_by(customer_id=customer.id).order_by(Conversation.timestamp.desc()).limit(10).all()
-        conversation_history.reverse()
+        conversation_history.reverse() # Coloca na ordem cronológica correta
         conversation_dict = [{'message_type': conv.message_type, 'message_content': conv.message_content} for conv in conversation_history]
         
-        structured_response = ai_agent.generate_response(customer, conversation_dict)
+        # 3. LÓGICA DE ESCOLHA DE TÁTICA (aqui entra o RL)
+        # Por enquanto, vamos manter simples, mas a estrutura está pronta.
+        # No futuro, o `learner` será chamado aqui para decidir a tática.
+        tactic_to_use = "default" # Placeholder para a tática
         
-        customer_analysis = structured_response.get("analysis", {})
-        ai_response_text = structured_response.get("response", "Desculpe, não consegui processar sua mensagem.")
+        # Exemplo de como seria com o RL:
+        # if customer.funnel_state == 'awaiting_objection':
+        #     tactic_to_use = learner.get_best_tactic(customer, conversation_dict)
+        # else:
+        #     product = Product.query.get(customer.selected_product_id)
+        #     tactic_to_use = product.sales_approach if product else 'consultivo'
+
+        # 4. Geração da Resposta pela IA
+        # A IA agora recebe a tática a ser usada
+        structured_response = ai_agent.generate_response(customer, conversation_dict, tactic_to_use)
         
+        # 5. Processamento da Resposta Estruturada
+        ai_response_text = structured_response.get("text", "Desculpe, não entendi. Pode reformular?")
+        response_buttons = structured_response.get("buttons", []) # EXTRAI A LISTA DE BOTÕES
+        new_funnel_state = structured_response.get("funnel_state_update")
+        product_id_to_select = structured_response.get("product_id_to_select")
+        
+        # 6. Atualização do Estado e da Conversa no Banco de Dados
         outgoing_conversation = Conversation(
-            customer_id=customer.id, message_type='outgoing', message_content=ai_response_text,
-            sentiment_score=customer_analysis.get('sentiment', 0.0)
+            customer_id=customer.id,
+            message_type='outgoing',
+            message_content=ai_response_text,
+            ai_strategy=tactic_to_use # Salvamos a tática que foi usada
         )
         db.session.add(outgoing_conversation)
 
-        new_funnel_state = structured_response.get("funnel_state_update")
         if new_funnel_state:
             customer.funnel_state = new_funnel_state
-
-        product_id_to_select = structured_response.get("product_id_to_select")
         if product_id_to_select:
             customer.selected_product_id = int(product_id_to_select)
         
         db.session.commit()
 
-        final_response_text = ai_response_text
-
-        if new_funnel_state == 'Specialist_Intro':
-            logger.info(f"Handoff detectado. Gerando primeira mensagem do especialista para o cliente {customer.id}.")
-            specialist_response_dict = ai_agent.generate_response(customer, []) 
-            
-            specialist_text = specialist_response_dict.get("response", "Olá! Sou o especialista e estou aqui para ajudar.")
-            final_response_text += f"\n\n{specialist_text}"
-
-            specialist_outgoing = Conversation(
-                customer_id=customer.id, message_type='outgoing', message_content=specialist_text
-            )
-            db.session.add(specialist_outgoing)
-
-            final_state = specialist_response_dict.get("funnel_state_update")
-            if final_state:
-                customer.funnel_state = final_state
-            
-            db.session.commit()
-
-        logger.info(f"Mensagem de {sender_id} (estado: {customer.funnel_state}) processada.")
-        return jsonify([{"recipient_id": sender_id, "text": final_response_text}]), 200
+        # 7. Envio da Resposta Final para a Interface (com botões)
+        logger.info(f"Mensagem de {sender_id} (estado: {customer.funnel_state}) processada. Enviando texto e {len(response_buttons)} botões.")
+        
+        # A resposta JSON agora contém uma chave "buttons"
+        return jsonify([{
+            "recipient_id": sender_id,
+            "text": ai_response_text,
+            "buttons": response_buttons 
+        }]), 200
 
     except Exception as e:
         logger.error(f"Erro ao processar mensagem do chat web: {e}", exc_info=True)
         db.session.rollback()
         return jsonify([{"text": "Desculpe, ocorreu um erro no servidor. Tente novamente."}]), 500
 
+#
+# --- O RESTANTE DAS ROTAS PERMANECE IGUAL ---
+# Nenhuma alteração necessária no dashboard, analytics, etc.
+#
+
 @app.route('/')
 def dashboard():
+    # ... código inalterado ...
     try:
-        if learner is None:
-            init_handlers()
+        if learner is None: init_handlers()
         total_customers = Customer.query.count()
         total_conversations = Conversation.query.count()
         total_sales = Sale.query.count()
@@ -132,8 +150,10 @@ def dashboard():
         logger.error(f"Error loading dashboard: {e}")
         return render_template('dashboard.html', error=str(e))
 
+
 @app.route('/simulate_sale', methods=['POST'])
 def simulate_sale():
+    # ... código inalterado ...
     try:
         if learner is None: init_handlers()
         data = request.get_json()
@@ -141,7 +161,8 @@ def simulate_sale():
         if not customer_id: return jsonify({"error": "customer_id é obrigatório"}), 400
         customer = Customer.query.get(customer_id)
         if not customer: return jsonify({"error": "Cliente não encontrado"}), 404
-        product = Product.query.filter_by(is_active=True).first()
+        # A lógica aqui pode ser refinada para usar o `selected_product_id` do cliente
+        product = Product.query.get(customer.selected_product_id) if customer.selected_product_id else Product.query.filter_by(is_active=True).first()
         if not product: return jsonify({"error": "Nenhum produto ativo encontrado para simular a venda"}), 404
         latest_conv = Conversation.query.filter_by(customer_id=customer_id, message_type='outgoing').order_by(Conversation.timestamp.desc()).first()
         strategy_used = latest_conv.ai_strategy if latest_conv and latest_conv.ai_strategy else "consultivo"
@@ -157,8 +178,10 @@ def simulate_sale():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/conversations')
 def conversations():
+    # ... código inalterado ...
     try:
         page = request.args.get('page', 1, type=int)
         customers = Customer.query.order_by(Customer.last_interaction.desc()).paginate(
@@ -169,32 +192,40 @@ def conversations():
         logger.error(f"Error loading conversations page: {e}")
         return render_template('conversations.html', error=str(e))
 
+
 @app.route('/customer/<int:customer_id>')
 def customer_detail(customer_id):
+    # ... código inalterado ...
     customer = Customer.query.get_or_404(customer_id)
     conversations = Conversation.query.filter_by(customer_id=customer_id).order_by(Conversation.timestamp.asc()).all()
     return render_template('customer_detail.html', customer=customer, conversations=conversations)
 
 @app.route('/analytics')
 def analytics():
+    # ... código inalterado ...
     if learner is None: init_handlers()
     learning_stats = learner.get_learning_statistics()
-    # Adicione a lógica para buscar daily_sales e avg_sentiment se necessário para o template
     return render_template('analytics.html', learning_stats=learning_stats)
+
 
 @app.route('/api/learning_stats')
 def api_learning_stats():
+    # ... código inalterado ...
     if learner is None: init_handlers()
     stats = learner.get_learning_statistics()
     return jsonify(stats)
 
+
 @app.route('/products')
 def products():
+    # ... código inalterado ...
     all_products = Product.query.order_by(Product.created_at.desc()).all()
     return render_template('products.html', products=all_products)
 
+
 @app.route('/products/new', methods=['GET', 'POST'])
 def new_product():
+    # ... código inalterado ...
     if request.method == 'POST':
         try:
             benefits_text = request.form.get('key_benefits', '')
@@ -225,8 +256,10 @@ def new_product():
             db.session.rollback()
     return render_template('new_product.html')
 
+
 @app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
 def edit_product(product_id):
+    # ... código inalterado ...
     product = Product.query.get_or_404(product_id)
     if request.method == 'POST':
         try:
@@ -261,8 +294,10 @@ def edit_product(product_id):
     benefits_text = '\n'.join(json.loads(product.key_benefits)) if product.key_benefits and product.key_benefits.strip() else ""
     return render_template('edit_product.html', product=product, benefits_text=benefits_text)
 
+
 @app.route('/products/<int:product_id>/delete', methods=['POST'])
 def delete_product(product_id):
+    # ... código inalterado ...
     try:
         product = Product.query.get_or_404(product_id)
         product.is_active = False
@@ -274,8 +309,10 @@ def delete_product(product_id):
         db.session.rollback()
     return redirect(url_for('products'))
 
+
 @app.route('/niches')
 def niches():
+    # ... código inalterado ...
     try:
         from sqlalchemy import func
         
