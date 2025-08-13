@@ -248,28 +248,33 @@ class AIAgent:
             "funnel_state_update": "awaiting_purchase_outcome"
         }
 
-    def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """Lida com objeções ou com a descrição específica do problema, usando a tática definida."""
-        product = Product.query.get(customer.selected_product_id)
-        if not product:
-            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
-        prompt = f"""
-        Você é um especialista em vendas do produto '{product.name}'. O cliente tem uma dúvida ou objeção.
-        O histórico da conversa é: {history}.
-        A sua tática para quebrar esta objeção é: '{tactic}'.
-        Use esta tática para criar uma resposta empática e persuasiva.
-        Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
-        """
-        response_json = self._make_api_call(prompt)
-        followup_text = response_json.get("text", "Entendo a sua dúvida. Deixe-me explicar melhor...")
-        return {
-            "text": followup_text,
-            "buttons": [
-                {"label": "✅ Entendi, quero comprar agora", "value": f"link:{product.payment_link}"},
-                {"label": "Ainda tenho uma dúvida", "value": "Ainda tenho uma dúvida"}
-            ],
-            "funnel_state_update": "awaiting_purchase_outcome" # Mantém o cliente no ciclo de compra/dúvida
-        }
+   def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+    """
+    PRIMEIRA TENTATIVA DE FOLLOW-UP: Lida com a primeira objeção e prepara para a tentativa final.
+    """
+    product = Product.query.get(customer.selected_product_id)
+    if not product:
+        return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
+    
+    prompt = f"""
+    Você é um especialista em vendas do produto '{product.name}'. O cliente tem uma dúvida ou objeção.
+    O histórico da conversa é: {history}.
+    A sua tática para quebrar esta objeção é: '{tactic}'.
+    Use esta tática para criar uma resposta empática e persuasiva.
+    Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
+    """
+    response_json = self._make_api_call(prompt)
+    followup_text = response_json.get("text", "Entendo a sua dúvida. Deixe-me explicar melhor...")
+    
+    return {
+        "text": followup_text,
+        "buttons": [
+            {"label": "✅ Entendi, quero comprar agora", "value": f"link:{product.payment_link}"},
+            {"label": "Ainda tenho uma dúvida", "value": "Ainda tenho uma dúvida"}
+        ],
+        # MUDANÇA CRÍTICA: Movemos para um novo estado de "última tentativa"
+        "funnel_state_update": "awaiting_final_objection" 
+    }
         
     def _handle_specialist_success(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         return {
