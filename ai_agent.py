@@ -50,7 +50,11 @@ class AIAgent:
             'awaiting_problem_category': self._handle_awaiting_problem_category,
             'awaiting_specific_description': self._handle_awaiting_specific_description,
 
+            # Lógica de Follow-up em 2 Etapas
             'specialist_followup': self._handle_specialist_followup,
+            'awaiting_final_objection': self._handle_awaiting_final_objection,
+            'specialist_final_followup': self._handle_specialist_final_followup,
+
             'specialist_success': self._handle_specialist_success,
             'default': self._handle_default
         }
@@ -93,15 +97,12 @@ class AIAgent:
     def _handle_awaiting_product_selection(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         last_message = history[-1]['message_content'] if history else ""
         try:
-            # Extrai o ID do produto da mensagem "Quero saber sobre o curso {p.id}"
             product_id = int(last_message.split(' ')[-1])
             product = Product.query.get(product_id)
             if product:
-                # Retorna instruções para o sistema principal atualizar o cliente e avançar o funil
                 return { "text": None, "buttons": [], "product_id_to_select": product_id, "funnel_state_update": "specialist_intro" }
         except (ValueError, IndexError):
             logger.warning(f"Não foi possível extrair o ID do produto da mensagem: '{last_message}'")
-        # Se falhar, lista os produtos novamente
         return self._handle_list_products(customer, history, tactic)
 
     def _handle_awaiting_offer_choice(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
@@ -125,15 +126,11 @@ class AIAgent:
             return self._handle_specialist_followup(customer, history, tactic)
             
     def _handle_awaiting_problem_category(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """
-        CÉREBRO DA TRIAGEM: Oferece soluções diferentes para cada categoria de problema.
-        """
         last_message = history[-1]['message_content'].lower() if history else ""
         product = Product.query.get(customer.selected_product_id)
         if not product:
             return self._handle_default(customer, history, tactic, error="Produto não encontrado para triagem.")
 
-        # Lógica para Problemas de Pagamento
         if "pagamento" in last_message:
             return {
                 "text": "Entendi, problemas com pagamento acontecem. Muitas vezes, tentar com outro cartão ou verificar os dados já resolve. Eu posso também gerar um novo link de pagamento para você, isso costuma funcionar!",
@@ -144,7 +141,6 @@ class AIAgent:
                 "funnel_state_update": "awaiting_purchase_outcome"
             }
         
-        # Lógica para Problemas de Link ou Cupom
         elif "link" in last_message or "cupom" in last_message:
             return {
                 "text": "Claro! Às vezes o cupom precisa ser reaplicado ou o link expira. Acabei de gerar um novo link de compra com o desconto para você. Clique abaixo para tentar de novo.",
@@ -154,8 +150,7 @@ class AIAgent:
                 "funnel_state_update": "awaiting_purchase_outcome"
             }
 
-        # Lógica para Dúvidas ou Outros Problemas (aqui pedimos para escrever)
-        else: # "outra duvida"
+        else: 
             return {
                 "text": "Entendido. Por favor, agora sim, escreva em detalhes a sua dúvida ou o problema que está a enfrentar para que eu possa te ajudar da melhor forma.",
                 "buttons": [],
@@ -163,10 +158,11 @@ class AIAgent:
             }
             
     def _handle_awaiting_specific_description(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """
-        ESCUTA ATIVA: Pega a descrição do problema e a envia para a IA Generativa.
-        """
         return self._handle_specialist_followup(customer, history, tactic)
+
+    def _handle_awaiting_final_objection(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """Controlador que ativa a resposta de follow-up final."""
+        return self._handle_specialist_final_followup(customer, history, tactic)
 
     # --- MÉTODOS HANDLER DE APRESENTAÇÃO ---
 
@@ -248,33 +244,59 @@ class AIAgent:
             "funnel_state_update": "awaiting_purchase_outcome"
         }
 
-   def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-    """
-    PRIMEIRA TENTATIVA DE FOLLOW-UP: Lida com a primeira objeção e prepara para a tentativa final.
-    """
-    product = Product.query.get(customer.selected_product_id)
-    if not product:
-        return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
-    
-    prompt = f"""
-    Você é um especialista em vendas do produto '{product.name}'. O cliente tem uma dúvida ou objeção.
-    O histórico da conversa é: {history}.
-    A sua tática para quebrar esta objeção é: '{tactic}'.
-    Use esta tática para criar uma resposta empática e persuasiva.
-    Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
-    """
-    response_json = self._make_api_call(prompt)
-    followup_text = response_json.get("text", "Entendo a sua dúvida. Deixe-me explicar melhor...")
-    
-    return {
-        "text": followup_text,
-        "buttons": [
-            {"label": "✅ Entendi, quero comprar agora", "value": f"link:{product.payment_link}"},
-            {"label": "Ainda tenho uma dúvida", "value": "Ainda tenho uma dúvida"}
-        ],
-        # MUDANÇA CRÍTICA: Movemos para um novo estado de "última tentativa"
-        "funnel_state_update": "awaiting_final_objection" 
-    }
+    def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """
+        PRIMEIRA TENTATIVA DE FOLLOW-UP: Lida com a primeira objeção e prepara para a tentativa final.
+        """
+        product = Product.query.get(customer.selected_product_id)
+        if not product:
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
+        
+        prompt = f"""
+        Você é um especialista em vendas do produto '{product.name}'. O cliente tem uma dúvida ou objeção.
+        O histórico da conversa é: {history}.
+        A sua tática para quebrar esta objeção é: '{tactic}'.
+        Use esta tática para criar uma resposta empática e persuasiva.
+        Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
+        """
+        response_json = self._make_api_call(prompt)
+        followup_text = response_json.get("text", "Entendo a sua dúvida. Deixe-me explicar melhor...")
+        
+        return {
+            "text": followup_text,
+            "buttons": [
+                {"label": "✅ Entendi, quero comprar agora", "value": f"link:{product.payment_link}"},
+                {"label": "Ainda tenho uma dúvida", "value": "Ainda tenho uma dúvida"}
+            ],
+            "funnel_state_update": "awaiting_final_objection" 
+        }
+        
+    def _handle_specialist_final_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """
+        TENTATIVA FINAL DE FOLLOW-UP: Responde à segunda objeção e oferece suporte humano.
+        """
+        product = Product.query.get(customer.selected_product_id)
+        if not product:
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
+        
+        prompt = f"""
+        Você é um especialista em vendas do produto '{product.name}'. O cliente AINDA tem uma dúvida ou objeção após sua primeira resposta.
+        O histórico da conversa é: {history}.
+        A sua tática para quebrar esta objeção é: '{tactic}'.
+        Seja ainda mais empático e claro na sua resposta final.
+        Gere uma resposta em JSON como este: {{"text": "sua_resposta_aqui"}}
+        """
+        response_json = self._make_api_call(prompt)
+        followup_text = response_json.get("text", "Entendo que ainda tenha dúvidas. Deixe-me tentar explicar de outra forma...")
+
+        return {
+            "text": followup_text,
+            "buttons": [
+                {"label": "✅ Ok, entendi. Quero comprar", "value": f"link:{product.payment_link}"},
+                {"label": "Falar com Suporte no WhatsApp", "value": "Quero falar no WhatsApp"}
+            ],
+            "funnel_state_update": "awaiting_purchase_outcome" 
+        }
         
     def _handle_specialist_success(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         return {
