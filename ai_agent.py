@@ -104,7 +104,7 @@ class AIAgent:
         else:
             # Se o utilizador escrever outra coisa, podemos ser proativos.
             return {
-                "text": "Entendido. Quando estiver pronto para ver a oferta especial que preparei para si, é só avisar!",
+                "text": "Entendido. Quando estiver pronto para ver a oferta especial que preparei para ti, é só avisar!",
                 "buttons": [{"label": "Estou pronto, quero a oferta!", "value": "Quero a oferta"}],
                 "funnel_state_update": "awaiting_offer_choice"
             }
@@ -124,7 +124,7 @@ class AIAgent:
 
     def _handle_start(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         return {
-            "text": "Olá! Sou o assistente virtual da Comunidade ATP. Como posso te ajudar hoje?",
+            "text": "Olá! Sou da Comunidade ATP. Como posso te ajudar hoje?",
             "buttons": [
                 {"label": "Ver Cursos", "value": "Ver Cursos"},
                 {"label": "Qual o Preço?", "value": "Qual o valor da comunidade?"},
@@ -146,7 +146,7 @@ class AIAgent:
         
     def _handle_get_price(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         return {
-            "text": "O acesso à Comunidade ATP com mais de 800 cursos é vitalício, por um pagamento único de R$97. O que você gostaria de fazer?",
+            "text": "O acesso à Comunidade ATP com mais de 800 cursos é vitalício, por um pagamento único. O que você gostaria de fazer?",
             "buttons": [
                 {"label": "Ver a Lista de Cursos", "value": "Ver Cursos"},
                 {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
@@ -156,7 +156,7 @@ class AIAgent:
 
     def _handle_whatsapp_redirect(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         return {
-            "text": "Claro! Para falar com um dos nossos consultores humanos, basta clicar no botão abaixo.",
+            "text": "Claro! Para falar com um dos nossos consultores, basta clicar no botão abaixo.",
             "buttons": [
                 {"label": "Abrir WhatsApp", "value": "Quero falar no WhatsApp"}
             ],
@@ -170,7 +170,7 @@ class AIAgent:
         specialist_name = product.specialist_name or "um especialista"
         social_proof = product.specialist_social_proof or "posso te ajudar a alcançar seus objetivos."
         return {
-            "text": f"Perfeito! Eu sou {specialist_name}, especialista no curso '{product.name}'. {social_proof}\n\nO que você gostaria de ver primeiro?",
+            "text": f"Perfeito! Eu sou {specialist_name}, especialista no curso '{product.name}'. {social_proof}\n\n O que você gostaria de ver primeiro?",
             "buttons": [
                 {"label": "Acessar Aulas Gratuitas", "value": f"link:{product.free_group_link}"},
                 {"label": "Ver Depoimentos", "value": f"link:{product.testimonials_link}"},
@@ -185,11 +185,11 @@ class AIAgent:
             return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
         prompt = f"""
         Você é um vendedor especialista. Crie uma mensagem curta e poderosa oferecendo o produto '{product.name}' por R${product.price}.
-        Mencione que o cupom '50TAO' dá 50% de desconto, mas é válido por apenas 10 minutos.
+        Mencione que o cupom '50TAO' dá 50 Reais de desconto, mas é válido por apenas 10 minutos.
         Gere APENAS o texto da oferta em uma única string dentro de um JSON como este: {{"text": "sua_resposta_aqui"}}
         """
         response_json = self._make_api_call(prompt)
-        offer_text = response_json.get("text", f"Aproveite a oferta especial para o curso {product.name}!")
+        offer_text = response_json.get("text", f" Aproveite a oferta especial para o curso {product.name}!")
         return {
             "text": offer_text,
             "buttons": [
