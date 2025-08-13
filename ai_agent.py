@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class AIAgent:
     def __init__(self):
-        # Configuração da API do Gemini (inalterada)
+        # Configuração da API do Gemini
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             logger.error("A chave da API do Google não está configurada.")
@@ -41,12 +41,17 @@ class AIAgent:
             'get_price': self._handle_get_price,
             'whatsapp_redirect': self._handle_whatsapp_redirect,
             'specialist_intro': self._handle_specialist_intro,
-            'awaiting_offer_choice': self._handle_awaiting_offer_choice, # <-- Adicionado
+            'awaiting_offer_choice': self._handle_awaiting_offer_choice,
             'specialist_offer': self._handle_specialist_offer,
-            'awaiting_purchase_outcome': self._handle_awaiting_purchase_outcome, # <-- Adicionado
+            'awaiting_purchase_outcome': self._handle_awaiting_purchase_outcome,
+            
+            # Lógica de Triagem Inteligente de Problemas
+            'specialist_problem': self._handle_specialist_problem,
+            'awaiting_problem_category': self._handle_awaiting_problem_category,
+            'awaiting_specific_description': self._handle_awaiting_specific_description,
+
             'specialist_followup': self._handle_specialist_followup,
             'specialist_success': self._handle_specialist_success,
-            'specialist_problem': self._handle_specialist_problem,
             'default': self._handle_default
         }
 
@@ -88,21 +93,22 @@ class AIAgent:
     def _handle_awaiting_product_selection(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
         last_message = history[-1]['message_content'] if history else ""
         try:
+            # Extrai o ID do produto da mensagem "Quero saber sobre o curso {p.id}"
             product_id = int(last_message.split(' ')[-1])
             product = Product.query.get(product_id)
             if product:
+                # Retorna instruções para o sistema principal atualizar o cliente e avançar o funil
                 return { "text": None, "buttons": [], "product_id_to_select": product_id, "funnel_state_update": "specialist_intro" }
         except (ValueError, IndexError):
             logger.warning(f"Não foi possível extrair o ID do produto da mensagem: '{last_message}'")
+        # Se falhar, lista os produtos novamente
         return self._handle_list_products(customer, history, tactic)
 
     def _handle_awaiting_offer_choice(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """NOVO: Controlador que processa a escolha após a intro do especialista."""
         last_message = history[-1]['message_content'].lower() if history else ""
         if "oferta" in last_message:
             return self._handle_specialist_offer(customer, history, tactic)
         else:
-            # Se o utilizador escrever outra coisa, podemos ser proativos.
             return {
                 "text": "Entendido. Quando estiver pronto para ver a oferta especial que preparei para ti, é só avisar!",
                 "buttons": [{"label": "Estou pronto, quero a oferta!", "value": "Quero a oferta"}],
@@ -110,15 +116,57 @@ class AIAgent:
             }
 
     def _handle_awaiting_purchase_outcome(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """NOVO: Controlador que processa o resultado após a apresentação da oferta."""
         last_message = history[-1]['message_content'].lower() if history else ""
         if "comprei" in last_message:
             return self._handle_specialist_success(customer, history, tactic)
         elif "problema" in last_message:
             return self._handle_specialist_problem(customer, history, tactic)
         else:
-            # Qualquer outra mensagem é tratada como uma objeção/dúvida.
             return self._handle_specialist_followup(customer, history, tactic)
+            
+    def _handle_awaiting_problem_category(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """
+        CÉREBRO DA TRIAGEM: Oferece soluções diferentes para cada categoria de problema.
+        """
+        last_message = history[-1]['message_content'].lower() if history else ""
+        product = Product.query.get(customer.selected_product_id)
+        if not product:
+            return self._handle_default(customer, history, tactic, error="Produto não encontrado para triagem.")
+
+        # Lógica para Problemas de Pagamento
+        if "pagamento" in last_message:
+            return {
+                "text": "Entendi, problemas com pagamento acontecem. Muitas vezes, tentar com outro cartão ou verificar os dados já resolve. Eu posso também gerar um novo link de pagamento para você, isso costuma funcionar!",
+                "buttons": [
+                    {"label": "✅ Sim, gerar novo link", "value": f"link:{product.payment_link}"},
+                    {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+                ],
+                "funnel_state_update": "awaiting_purchase_outcome"
+            }
+        
+        # Lógica para Problemas de Link ou Cupom
+        elif "link" in last_message or "cupom" in last_message:
+            return {
+                "text": "Claro! Às vezes o cupom precisa ser reaplicado ou o link expira. Acabei de gerar um novo link de compra com o desconto para você. Clique abaixo para tentar de novo.",
+                "buttons": [
+                    {"label": "Tentar comprar com novo link", "value": f"link:{product.payment_link}"}
+                ],
+                "funnel_state_update": "awaiting_purchase_outcome"
+            }
+
+        # Lógica para Dúvidas ou Outros Problemas (aqui pedimos para escrever)
+        else: # "outra duvida"
+            return {
+                "text": "Entendido. Por favor, agora sim, escreva em detalhes a sua dúvida ou o problema que está a enfrentar para que eu possa te ajudar da melhor forma.",
+                "buttons": [],
+                "funnel_state_update": "awaiting_specific_description"
+            }
+            
+    def _handle_awaiting_specific_description(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
+        """
+        ESCUTA ATIVA: Pega a descrição do problema e a envia para a IA Generativa.
+        """
+        return self._handle_specialist_followup(customer, history, tactic)
 
     # --- MÉTODOS HANDLER DE APRESENTAÇÃO ---
 
@@ -201,7 +249,7 @@ class AIAgent:
         }
 
     def _handle_specialist_followup(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """MELHORADO: Lida com objeções usando a tática definida pelo ReinforcementLearner."""
+        """Lida com objeções ou com a descrição específica do problema, usando a tática definida."""
         product = Product.query.get(customer.selected_product_id)
         if not product:
             return self._handle_default(customer, history, tactic, error="Produto não encontrado.")
@@ -217,14 +265,13 @@ class AIAgent:
         return {
             "text": followup_text,
             "buttons": [
-                {"label": "Entendi, quero comprar", "value": f"link:{product.payment_link}"},
-                {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+                {"label": "✅ Entendi, quero comprar agora", "value": f"link:{product.payment_link}"},
+                {"label": "Ainda tenho uma dúvida", "value": "Ainda tenho uma dúvida"}
             ],
-            "funnel_state_update": "awaiting_purchase_outcome"
+            "funnel_state_update": "awaiting_purchase_outcome" # Mantém o cliente no ciclo de compra/dúvida
         }
         
     def _handle_specialist_success(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """MELHORADO: Mensagem de parabéns após a compra."""
         return {
             "text": "Parabéns pela sua decisão e seja muito bem-vindo(a) à comunidade! Tenho a certeza de que vai aproveitar ao máximo. O seu acesso será enviado para o seu e-mail em instantes.",
             "buttons": [],
@@ -232,13 +279,17 @@ class AIAgent:
         }
 
     def _handle_specialist_problem(self, customer: Customer, history: List[Dict], tactic: str) -> Dict[str, Any]:
-        """MELHORADO: Lida com problemas na compra, direcionando para o suporte."""
+        """
+        INÍCIO DA TRIAGEM INTELIGENTE: Pergunta a categoria do problema ao cliente.
+        """
         return {
-            "text": "Sem problemas, acontece! Para que eu possa te ajudar a finalizar a compra, por favor, clique no botão abaixo e fale diretamente com a nossa equipe de suporte no WhatsApp.",
+            "text": "Sem problemas, estou aqui para ajudar! Para eu entender melhor, o seu problema está relacionado a quê?",
             "buttons": [
-                {"label": "Falar com Suporte", "value": "Quero falar no WhatsApp"}
+                {"label": "Problema com Pagamento", "value": "problema pagamento"},
+                {"label": "Link ou Cupom não funciona", "value": "problema link cupom"},
+                {"label": "Tenho uma outra dúvida", "value": "problema outra duvida"},
             ],
-            "funnel_state_update": "completed"
+            "funnel_state_update": "awaiting_problem_category"
         }
 
     def _handle_default(self, customer: Customer, history: List[Dict], tactic: str, error: str = None) -> Dict[str, Any]:
